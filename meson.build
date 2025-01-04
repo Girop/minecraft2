@@ -13,15 +13,12 @@ cpp_args = [
   '-Wextra',
 ]
 
-
 fmt = subproject('fmt', default_options: 'default_library=static')
 fmt_dep = fmt.get_variable('fmt_dep')
 glm_dep = dependency('glm')
-
 vulkan_dep = dependency('vulkan')
 
 deps = [glm_dep, fmt_dep, vulkan_dep]
-
 
 sources = files('src/main.cpp', 'src/window.cpp')
 
