@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <algorithm>
+#include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 #include <fmt/format.h>
 #include <fstream>
@@ -8,7 +9,6 @@
 #include <vector>
 #include <set>
 #include <filesystem>
-#include "window.hpp"
 
 
 VkInstance create_instance() {
@@ -264,7 +264,15 @@ VkDevice create_logical_device(VkPhysicalDevice device, VkSurfaceKHR surface) {
 
 VkQueue get_graph_queue(VkDevice device, VkPhysicalDevice phys_device, VkSurfaceKHR surface) {
     auto queue_families {QueueFamilyIndicies::from(phys_device, surface)};
+    VkQueue queue;
+    vkGetDeviceQueue(device, queue_families.graphics.value(), 0, &queue);
+    assert(queue != VK_NULL_HANDLE);
+    return queue;
+}
 
+
+VkQueue get_present_queue(VkDevice device, VkPhysicalDevice phys_device, VkSurfaceKHR surface) {
+    auto queue_families {QueueFamilyIndicies::from(phys_device, surface)};
     VkQueue queue;
     vkGetDeviceQueue(device, queue_families.present.value(), 0, &queue);
     assert(queue != VK_NULL_HANDLE);
@@ -272,19 +280,9 @@ VkQueue get_graph_queue(VkDevice device, VkPhysicalDevice phys_device, VkSurface
 }
 
 
-VkSurfaceKHR create_surface(HWND window, HINSTANCE instance, VkInstance vkinstance) {
+VkSurfaceKHR create_surface(GLFWwindow* window, VkInstance vkinstance) {
     VkSurfaceKHR surface;
-
-    VkWin32SurfaceCreateInfoKHR createInfo {
-        .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-        .pNext = nullptr,
-        .flags = 0,
-        .hinstance = instance,
-        .hwnd = window,
-    };
-
-    assert(vkCreateWin32SurfaceKHR(vkinstance, &createInfo, nullptr, &surface) == VK_SUCCESS);
-    assert(surface != VK_NULL_HANDLE);
+    assert(glfwCreateWindowSurface(vkinstance, window, nullptr, &surface) == VK_SUCCESS);
     return surface;
 }
 
@@ -407,7 +405,7 @@ VkShaderModule create_shader_module(VkDevice device, std::vector<char> const& co
     return module;
 }
 
-VkRenderPass create_renderPass(VkDevice device, VkFormat format) {
+VkRenderPass create_render_pass(VkDevice device, VkFormat format) {
     VkAttachmentDescription color_attachement {
         .flags = 0, 
         .format = format,
@@ -438,6 +436,16 @@ VkRenderPass create_renderPass(VkDevice device, VkFormat format) {
         .pPreserveAttachments = nullptr
     };
 
+    VkSubpassDependency dependency {
+        .srcSubpass = VK_SUBPASS_EXTERNAL,
+        .dstSubpass = 0,
+        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = 0,
+        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dependencyFlags = 0
+    };
+
     VkRenderPassCreateInfo render_pass_info {
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
         .pNext = nullptr,
@@ -446,8 +454,8 @@ VkRenderPass create_renderPass(VkDevice device, VkFormat format) {
         .pAttachments = &color_attachement,
         .subpassCount = 1,
         .pSubpasses = &subpass,
-        .dependencyCount = 0,
-        .pDependencies = nullptr
+        .dependencyCount = 1,
+        .pDependencies = &dependency
     };
 
     VkRenderPass render_pass;
@@ -640,27 +648,217 @@ VkPipelineLayout create_pipeline_layout(VkDevice device) {
     return layout;
 }
 
+GLFWwindow* init_glfw() {
+    assert(glfwInit());
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    GLFWwindow* window = glfwCreateWindow(800, 600, "Vulkan", nullptr, nullptr);
+    return window;
+}
 
-constexpr std::string_view appname {"rendering engine"};
+std::vector<VkFramebuffer> get_framebuffers(
+    VkDevice device,
+    std::vector<VkImageView> const& imageviews,
+    VkRenderPass renderpass,
+    VkExtent2D extent
+) {
+    std::vector<VkFramebuffer> swapchain_framebuffers;
+    swapchain_framebuffers.resize(imageviews.size());
+    
+    for (size_t idx{}; idx < imageviews.size(); ++idx) 
+    {
+        VkImageView attachments[] = { imageviews[idx] };
+        VkFramebufferCreateInfo framebuffer_info {
+            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .renderPass = renderpass,
+            .attachmentCount = 1,
+            .pAttachments = attachments,
+            .width = extent.width,
+            .height = extent.height,
+            .layers = 1
+        };
+        assert(vkCreateFramebuffer(device, &framebuffer_info, nullptr, &swapchain_framebuffers.at(idx)) == VK_SUCCESS);
+    }
+    return swapchain_framebuffers;
+}
 
 
-int WINAPI WinMain(
-    [[maybe_unused]] HINSTANCE hinstance,
-    [[maybe_unused]] HINSTANCE hPrevInstance, 
-    [[maybe_unused]] LPSTR lpCmdLine,
-    [[maybe_unused]] int nCmdShow)
+VkCommandPool create_command_pool(VkPhysicalDevice phy_device, VkDevice device, VkSurfaceKHR surface) {
+    auto queue_families = QueueFamilyIndicies::from(phy_device, surface);
+    VkCommandPoolCreateInfo info {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = queue_families.graphics.value()
+    };
+    VkCommandPool comand_pool;
+    assert(vkCreateCommandPool(device, &info, nullptr, &comand_pool) == VK_SUCCESS);
+    return comand_pool;
+}
+
+VkCommandBuffer allocate_command_buffer(VkDevice device, VkCommandPool command_pool) {
+    VkCommandBufferAllocateInfo info {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .commandPool = command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+
+    VkCommandBuffer buffer;
+    assert(vkAllocateCommandBuffers(device, &info, &buffer) == VK_SUCCESS);
+    return buffer;
+}
+
+void record_command_buffer(
+    VkCommandBuffer buffer,
+    VkFramebuffer framebuffer,
+    VkRenderPass render_pass,
+    VkExtent2D extent,
+    VkPipeline pipeline
+)
+{
+    VkCommandBufferBeginInfo buffer_begin_info {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .pInheritanceInfo = nullptr
+    };
+
+    assert(vkBeginCommandBuffer(buffer, &buffer_begin_info) == VK_SUCCESS);
+    
+    VkClearValue clear_color {{{0.0f, 0.0f, 0.0f, 1.0f}}}; // {{lol}}
+
+    VkRenderPassBeginInfo render_pass_begin {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .pNext = nullptr,
+        .renderPass = render_pass,
+        .framebuffer = framebuffer,
+        .renderArea = {
+            .offset = {0, 0},
+            .extent = extent
+        },
+        .clearValueCount = 1,
+        .pClearValues = &clear_color
+    };
+
+    vkCmdBeginRenderPass(buffer, &render_pass_begin, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+
+    VkViewport viewport {
+        .x = 0.0f,
+        .y = 0.0f,
+        .width = static_cast<float>(extent.width),
+        .height = static_cast<float>(extent.height),
+        .minDepth = 0.0,
+        .maxDepth = 1.0f
+    };
+    vkCmdSetViewport(buffer, 0, 1, &viewport);
+
+    VkRect2D scissors {
+        .offset = {0, 0},
+        .extent = extent,
+    };
+    vkCmdSetScissor(buffer, 0, 1, &scissors);
+
+    vkCmdDraw(buffer, 3, 1, 0, 0);
+
+    vkCmdEndRenderPass(buffer);
+
+    assert(vkEndCommandBuffer(buffer) == VK_SUCCESS);
+}
+
+VkSemaphore create_semaphore(VkDevice device) {
+    VkSemaphoreCreateInfo info {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+    };
+
+    VkSemaphore sem;
+    assert(vkCreateSemaphore(device, &info, nullptr, &sem) == VK_SUCCESS);
+    return sem;
+}
+
+VkFence create_signaled_fence(VkDevice device) {
+    VkFenceCreateInfo info {
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT
+    };
+    VkFence fence;
+    assert(vkCreateFence(device, &info, nullptr, &fence) == VK_SUCCESS);
+    return fence;
+}
+
+
+void draw_frame(
+    VkDevice device,
+    VkFence inlight,
+    SwapChainResult& swapchain,
+    VkSemaphore image_avail,
+    VkSemaphore render_finished,
+    VkCommandBuffer command_buffer,
+    std::vector<VkFramebuffer>& framebuffer,
+    VkRenderPass render_pass,
+    VkPipeline pipeline,
+    VkQueue graphics_queue,
+    VkQueue present_queue
+) {
+    vkWaitForFences(device, 1, &inlight, VK_TRUE,  UINT64_MAX);
+    vkResetFences(device, 1, &inlight);
+
+    uint32_t image_index;
+    vkAcquireNextImageKHR(device, swapchain.handle, UINT64_MAX, image_avail, VK_NULL_HANDLE, &image_index);
+    vkResetCommandBuffer(command_buffer, 0);
+    record_command_buffer(command_buffer, framebuffer.at(image_index), render_pass, swapchain.extent, pipeline);
+
+    
+    VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    VkSubmitInfo info {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext = nullptr,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &image_avail,
+        .pWaitDstStageMask = wait_stages,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &command_buffer,
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores = &render_finished
+    };
+
+    assert(vkQueueSubmit(graphics_queue, 1, &info, inlight) == VK_SUCCESS);
+
+    VkPresentInfoKHR present_info {
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .pNext = nullptr,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &render_finished,
+        .swapchainCount = 1,
+        .pSwapchains = &swapchain.handle,
+        .pImageIndices = &image_index,
+        .pResults = nullptr
+    };
+
+    vkQueuePresentKHR(present_queue, &present_info);
+}
+
+
+int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) 
 { 
-    Window window {appname};
-
+    fmt::println("Starting");
+    auto window = init_glfw();
     VkInstance instance {create_instance()};
-    VkSurfaceKHR surface {create_surface(window.get_window(), window.get_instance(), instance)};
+    VkSurfaceKHR surface {create_surface(window, instance)};
     VkPhysicalDevice phys_device {create_phy_device(instance, surface)};
     VkDevice device {create_logical_device(phys_device, surface)};
     auto details = SwapChainSupportDetails::query_from(phys_device, surface);
     auto swapchain {create_swapchain(details, phys_device, device, surface)};
     auto image_views = create_imageviews(swapchain, device);
     VkPipelineLayout pipeline_layout {create_pipeline_layout(device)};
-    auto render_pass = create_renderPass(device, swapchain.used_format);
+    auto render_pass = create_render_pass(device, swapchain.used_format);
 
     auto vert_code = load_shader("shaders/vert.spv");
     auto frag_code = load_shader("shaders/frag.spv");
@@ -668,8 +866,45 @@ int WINAPI WinMain(
     auto frag_module = create_shader_module(device, frag_code);
 
     auto pipeline = create_pipeline(device, swapchain.extent, render_pass, pipeline_layout, vert_module, frag_module);
+    auto framebuffers = get_framebuffers(device, image_views, render_pass, swapchain.extent);
+    auto command_pool = create_command_pool(phys_device, device, surface);
 
-    // window.run();
+    auto command_buffer = allocate_command_buffer(device, command_pool);
+
+    VkSemaphore image_available = create_semaphore(device);
+    VkSemaphore render_finished = create_semaphore(device);
+    VkFence inlight_fence = create_signaled_fence(device); 
+    auto graph_queue = get_graph_queue(device, phys_device, surface);
+    auto present_queue = get_present_queue(device, phys_device, surface);
+
+    while (!glfwWindowShouldClose(window)) 
+    {
+        glfwPollEvents();
+        draw_frame(
+            device,
+            inlight_fence,
+            swapchain,
+            image_available,
+            render_finished,
+            command_buffer,
+            framebuffers,
+            render_pass,
+            pipeline,
+            graph_queue,
+            present_queue
+        );
+    }
+
+    vkDeviceWaitIdle(device);
+
+    vkDestroyFence(device, inlight_fence, nullptr);
+    vkDestroySemaphore(device, image_available, nullptr);
+    vkDestroySemaphore(device, render_finished, nullptr);
+
+    vkDestroyCommandPool(device, command_pool, nullptr);
+    for (auto framebuffer : framebuffers) {
+        vkDestroyFramebuffer(device, framebuffer, nullptr);
+    }
 
     vkDestroyShaderModule(device, vert_module, nullptr);
     vkDestroyShaderModule(device, frag_module, nullptr);
@@ -683,6 +918,9 @@ int WINAPI WinMain(
     vkDestroySurfaceKHR(instance, surface, nullptr);
     vkDestroyDevice(device, nullptr);
     vkDestroyInstance(instance, nullptr);
+
+    glfwDestroyWindow(window);
+    glfwTerminate();
 
     fmt::print("Success\n");
 
