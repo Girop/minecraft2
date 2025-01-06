@@ -11,6 +11,8 @@
 #include <filesystem>
 
 
+constexpr uint32_t MAX_FRAMES_IN_FLIGHT {2};
+
 VkInstance create_instance() {
     VkApplicationInfo appInfo {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -210,7 +212,7 @@ bool is_device_suitable(VkPhysicalDevice device, VkSurfaceKHR surface) {
 }
 
 
-VkPhysicalDevice create_phy_device(VkInstance instance, VkSurfaceKHR surface) {
+VkPhysicalDevice find_physical_device(VkInstance instance, VkSurfaceKHR surface) {
     VkPhysicalDevice chosen_device {VK_NULL_HANDLE};
     
     uint32_t device_count{0};
@@ -697,17 +699,18 @@ VkCommandPool create_command_pool(VkPhysicalDevice phy_device, VkDevice device, 
     return comand_pool;
 }
 
-VkCommandBuffer allocate_command_buffer(VkDevice device, VkCommandPool command_pool) {
+std::vector<VkCommandBuffer> allocate_command_buffers(VkDevice device, VkCommandPool command_pool) {
     VkCommandBufferAllocateInfo info {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .pNext = nullptr,
         .commandPool = command_pool,
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
+        .commandBufferCount = 2,
     };
 
-    VkCommandBuffer buffer;
-    assert(vkAllocateCommandBuffers(device, &info, &buffer) == VK_SUCCESS);
+    std::vector<VkCommandBuffer> buffer;
+    buffer.resize(MAX_FRAMES_IN_FLIGHT);
+    assert(vkAllocateCommandBuffers(device, &info, buffer.data()) == VK_SUCCESS);
     return buffer;
 }
 
@@ -793,27 +796,115 @@ VkFence create_signaled_fence(VkDevice device) {
     return fence;
 }
 
+struct SynchronizationPrimitives {
+    std::vector<VkSemaphore> image_available;
+    std::vector<VkSemaphore> rendering_finished;
+    std::vector<VkFence> inlight_fence;
+
+    static SynchronizationPrimitives create(VkDevice device, uint32_t count) {
+        SynchronizationPrimitives primitives;
+        primitives.image_available.resize(count);
+        primitives.rendering_finished.resize(count);
+        primitives.inlight_fence.resize(count);
+
+
+        for (uint32_t idx{}; idx < count; ++idx) {
+            primitives.inlight_fence.at(idx) = create_signaled_fence(device);
+            primitives.image_available.at(idx) = create_semaphore(device);
+            primitives.rendering_finished.at(idx) = create_semaphore(device);
+        }
+        return primitives;
+    }
+
+    void destroy(VkDevice referenced_device) {
+        for (uint32_t idx {0}; idx < image_available.size(); ++idx) {
+            vkDestroyFence(referenced_device, inlight_fence.at(idx), nullptr);
+            vkDestroySemaphore(referenced_device, image_available.at(idx), nullptr);
+            vkDestroySemaphore(referenced_device, rendering_finished.at(idx), nullptr);
+        }
+    }
+};
+
+struct SwapchainFixedData {
+    SwapChainResult swapchain;
+    std::vector<VkImageView> image_views;
+    VkRenderPass render_pass; // Don't necessarly has to be here
+    std::vector<VkFramebuffer> framebuffers; 
+
+    static SwapchainFixedData create(VkPhysicalDevice phys_device, VkDevice device, VkSurfaceKHR surface)
+    {
+        auto details = SwapChainSupportDetails::query_from(phys_device, surface);
+        auto swapchain = create_swapchain(details, phys_device, device, surface);
+        auto image_views = create_imageviews(swapchain, device);
+        auto render_pass = create_render_pass(device, swapchain.used_format);
+        auto framebuffers = get_framebuffers(device, image_views, render_pass, swapchain.extent);
+
+        return SwapchainFixedData {
+            .swapchain = swapchain,
+            .image_views = image_views,
+            .render_pass = render_pass,
+            .framebuffers = framebuffers,
+        };
+    }
+
+    void recreate(GLFWwindow* handle, VkPhysicalDevice phys_device, VkDevice device, VkSurfaceKHR surface)
+    {
+        vkDeviceWaitIdle(device);
+        destroy(device);
+
+        int width, height;
+        glfwGetFramebufferSize(handle, &width, &height);
+
+        while (width == 0 or height == 0) {
+            glfwGetFramebufferSize(handle, &width, &height);
+            glfwWaitEvents();
+        }
+        *this = SwapchainFixedData::create(phys_device, device, surface);
+    }
+
+    void destroy(VkDevice device) 
+    {
+        for (auto framebuffer : framebuffers) {
+            vkDestroyFramebuffer(device, framebuffer, nullptr);
+        }
+        vkDestroyRenderPass(device, render_pass, nullptr);
+        for (auto view : image_views) {
+            vkDestroyImageView(device, view, nullptr);
+        }
+        vkDestroySwapchainKHR(device, swapchain.handle, nullptr);
+    }
+};
 
 void draw_frame(
+    GLFWwindow* window,
     VkDevice device,
-    VkFence inlight,
-    SwapChainResult& swapchain,
-    VkSemaphore image_avail,
-    VkSemaphore render_finished,
+    VkPhysicalDevice phys_device,
+    VkSurfaceKHR surface,
+    SwapchainFixedData& swapchain,
+    uint32_t current_frame,
+    SynchronizationPrimitives const& primitives,
     VkCommandBuffer command_buffer,
-    std::vector<VkFramebuffer>& framebuffer,
-    VkRenderPass render_pass,
     VkPipeline pipeline,
     VkQueue graphics_queue,
     VkQueue present_queue
 ) {
-    vkWaitForFences(device, 1, &inlight, VK_TRUE,  UINT64_MAX);
-    vkResetFences(device, 1, &inlight);
+    auto current_fence = primitives.inlight_fence.at(current_frame);
+    auto image_avail = primitives.image_available.at(current_frame);
+    auto render_finished = primitives.rendering_finished.at(current_frame);
 
+    vkWaitForFences(device, 1, &current_fence, VK_TRUE,  UINT64_MAX);
+    
     uint32_t image_index;
-    vkAcquireNextImageKHR(device, swapchain.handle, UINT64_MAX, image_avail, VK_NULL_HANDLE, &image_index);
+    VkResult success = vkAcquireNextImageKHR(device, swapchain.swapchain.handle, UINT64_MAX, image_avail, VK_NULL_HANDLE, &image_index);
+    if (success == VK_ERROR_OUT_OF_DATE_KHR or success == VK_SUBOPTIMAL_KHR) {
+        swapchain.recreate(window, phys_device, device, surface);
+        return; 
+    } 
+    assert(success == VK_SUCCESS);
+    vkResetFences(device, 1, &current_fence);
+
     vkResetCommandBuffer(command_buffer, 0);
-    record_command_buffer(command_buffer, framebuffer.at(image_index), render_pass, swapchain.extent, pipeline);
+    record_command_buffer(command_buffer, swapchain.framebuffers.at(image_index), swapchain.render_pass, swapchain.swapchain.extent, pipeline);
 
     
     VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
@@ -829,7 +920,7 @@ void draw_frame(
         .pSignalSemaphores = &render_finished
     };
 
-    assert(vkQueueSubmit(graphics_queue, 1, &info, inlight) == VK_SUCCESS);
+    assert(vkQueueSubmit(graphics_queue, 1, &info, current_fence) == VK_SUCCESS);
 
     VkPresentInfoKHR present_info {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -837,7 +928,7 @@ void draw_frame(
         .waitSemaphoreCount = 1,
         .pWaitSemaphores = &render_finished,
         .swapchainCount = 1,
-        .pSwapchains = &swapchain.handle,
+        .pSwapchains = &swapchain.swapchain.handle,
         .pImageIndices = &image_index,
         .pResults = nullptr
     };
@@ -852,69 +943,64 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
     auto window = init_glfw();
     VkInstance instance {create_instance()};
     VkSurfaceKHR surface {create_surface(window, instance)};
-    VkPhysicalDevice phys_device {create_phy_device(instance, surface)};
+    VkPhysicalDevice phys_device {find_physical_device(instance, surface)};
     VkDevice device {create_logical_device(phys_device, surface)};
-    auto details = SwapChainSupportDetails::query_from(phys_device, surface);
-    auto swapchain {create_swapchain(details, phys_device, device, surface)};
-    auto image_views = create_imageviews(swapchain, device);
+
     VkPipelineLayout pipeline_layout {create_pipeline_layout(device)};
-    auto render_pass = create_render_pass(device, swapchain.used_format);
 
     auto vert_code = load_shader("shaders/vert.spv");
     auto frag_code = load_shader("shaders/frag.spv");
     auto vert_module = create_shader_module(device, vert_code);
     auto frag_module = create_shader_module(device, frag_code);
 
-    auto pipeline = create_pipeline(device, swapchain.extent, render_pass, pipeline_layout, vert_module, frag_module);
-    auto framebuffers = get_framebuffers(device, image_views, render_pass, swapchain.extent);
+    auto swapchain_data = SwapchainFixedData::create(phys_device, device, surface);
+
+    auto pipeline = create_pipeline(
+        device,
+        swapchain_data.swapchain.extent,
+        swapchain_data.render_pass,
+        pipeline_layout,
+        vert_module,
+        frag_module
+    );
+
     auto command_pool = create_command_pool(phys_device, device, surface);
+    auto command_buffer = allocate_command_buffers(device, command_pool);
 
-    auto command_buffer = allocate_command_buffer(device, command_pool);
-
-    VkSemaphore image_available = create_semaphore(device);
-    VkSemaphore render_finished = create_semaphore(device);
-    VkFence inlight_fence = create_signaled_fence(device); 
     auto graph_queue = get_graph_queue(device, phys_device, surface);
     auto present_queue = get_present_queue(device, phys_device, surface);
+    auto primitives = SynchronizationPrimitives::create(device, MAX_FRAMES_IN_FLIGHT);
 
+    uint32_t current_frame {0};
     while (!glfwWindowShouldClose(window)) 
     {
         glfwPollEvents();
         draw_frame(
+            window,
             device,
-            inlight_fence,
-            swapchain,
-            image_available,
-            render_finished,
-            command_buffer,
-            framebuffers,
-            render_pass,
+            phys_device,
+            surface,
+            swapchain_data,
+            current_frame,
+            primitives,
+            command_buffer.at(current_frame),
             pipeline,
             graph_queue,
             present_queue
         );
+        current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
     vkDeviceWaitIdle(device);
 
-    vkDestroyFence(device, inlight_fence, nullptr);
-    vkDestroySemaphore(device, image_available, nullptr);
-    vkDestroySemaphore(device, render_finished, nullptr);
-
+    primitives.destroy(device);
     vkDestroyCommandPool(device, command_pool, nullptr);
-    for (auto framebuffer : framebuffers) {
-        vkDestroyFramebuffer(device, framebuffer, nullptr);
-    }
-
+    swapchain_data.destroy(device);
     vkDestroyShaderModule(device, vert_module, nullptr);
     vkDestroyShaderModule(device, frag_module, nullptr);
-    vkDestroyRenderPass(device, render_pass, nullptr);
     vkDestroyPipeline(device, pipeline, nullptr);
     vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
-    for (auto view : image_views) {
-        vkDestroyImageView(device, view, nullptr);
-    }
-    vkDestroySwapchainKHR(device, swapchain.handle, nullptr);
+
     vkDestroySurfaceKHR(instance, surface, nullptr);
     vkDestroyDevice(device, nullptr);
     vkDestroyInstance(instance, nullptr);
