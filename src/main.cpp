@@ -616,7 +616,7 @@ VkPipeline create_pipeline(
         .depthClampEnable = VK_FALSE,
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
-        .cullMode = VK_CULL_MODE_BACK_BIT,
+        .cullMode = VK_CULL_MODE_NONE,
         .frontFace = VK_FRONT_FACE_CLOCKWISE,
         .depthBiasEnable = VK_FALSE,
         .depthBiasConstantFactor = 0.0f,
@@ -708,7 +708,7 @@ VkPipelineLayout create_pipeline_layout(VkDevice device) {
 GLFWwindow* init_glfw() {
     assert(glfwInit());
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window = glfwCreateWindow(800, 600, "Vulkan", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(800, 600, "Dummy renderer", nullptr, nullptr);
     return window;
 }
 
@@ -770,13 +770,14 @@ std::vector<VkCommandBuffer> allocate_command_buffers(VkDevice device, VkCommand
 }
 
 void record_command_buffer(
-    VkCommandBuffer buffer,
+    VkCommandBuffer cmd_buffer,
     VkFramebuffer framebuffer,
     VkRenderPass render_pass,
     VkExtent2D extent,
     VkPipeline pipeline,
     VkBuffer vert_buf,
-    std::vector<Vertex> const& verticies
+    VkBuffer index_buffer,
+    size_t indices_count
 )
 {
     VkCommandBufferBeginInfo buffer_begin_info {
@@ -786,7 +787,7 @@ void record_command_buffer(
         .pInheritanceInfo = nullptr
     };
 
-    assert(vkBeginCommandBuffer(buffer, &buffer_begin_info) == VK_SUCCESS);
+    assert(vkBeginCommandBuffer(cmd_buffer, &buffer_begin_info) == VK_SUCCESS);
     
     VkClearValue clear_color {{{0.0f, 0.0f, 0.0f, 1.0f}}}; // {{lol}}
 
@@ -803,8 +804,8 @@ void record_command_buffer(
         .pClearValues = &clear_color
     };
 
-    vkCmdBeginRenderPass(buffer, &render_pass_begin, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    vkCmdBeginRenderPass(cmd_buffer, &render_pass_begin, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
 
     VkViewport viewport {
@@ -815,22 +816,22 @@ void record_command_buffer(
         .minDepth = 0.0,
         .maxDepth = 1.0f
     };
-    vkCmdSetViewport(buffer, 0, 1, &viewport);
+    vkCmdSetViewport(cmd_buffer, 0, 1, &viewport);
 
     VkRect2D scissors {
         .offset = {0, 0},
         .extent = extent,
     };
-    vkCmdSetScissor(buffer, 0, 1, &scissors);
+    vkCmdSetScissor(cmd_buffer, 0, 1, &scissors);
 
     VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(buffer, 0, 1, &vert_buf, offsets);
+    vkCmdBindVertexBuffers(cmd_buffer, 0, 1, &vert_buf, offsets);
+    
+    vkCmdBindIndexBuffer(cmd_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdDrawIndexed(cmd_buffer, indices_count, 1, 0, 0, 0);
+    vkCmdEndRenderPass(cmd_buffer);
 
-    vkCmdDraw(buffer, verticies.size(), 1, 0, 0);
-
-    vkCmdEndRenderPass(buffer);
-
-    assert(vkEndCommandBuffer(buffer) == VK_SUCCESS);
+    assert(vkEndCommandBuffer(cmd_buffer) == VK_SUCCESS);
 }
 
 VkSemaphore create_semaphore(VkDevice device) {
@@ -948,7 +949,8 @@ void draw_frame(
     VkQueue graphics_queue,
     VkQueue present_queue,
     VkBuffer vert_buffer,
-    std::vector<Vertex> const& verticies
+    VkBuffer index_buffer,
+    size_t index_count
 ) {
     auto current_fence = primitives.inlight_fence.at(current_frame);
     auto image_avail = primitives.image_available.at(current_frame);
@@ -973,7 +975,8 @@ void draw_frame(
         swapchain.swapchain.extent,
         pipeline,
         vert_buffer,
-        verticies
+        index_buffer,
+        index_count
     );
 
     
@@ -1060,6 +1063,11 @@ std::pair<VkBuffer, VkDeviceMemory> create_buffer(
 }
 
 
+template <typename T>
+size_t flat_collection_size(T const& collection) {
+    return collection.size() * sizeof(typename T::value_type);
+}
+
 // TODO: should be - void copy_buffer(VkBuffer source, VkBuffer destination, VkDeviceSize size)
 void copy_buffer(
     VkBuffer source,
@@ -1124,7 +1132,7 @@ std::pair<VkBuffer, VkDeviceMemory> create_vertex_buffer(
     VkQueue graphics_queue,
     std::vector<Vertex> const& verticies
 ) {
-    size_t mem_size = sizeof(verticies.at(0)) * verticies.size();
+    size_t mem_size = flat_collection_size(verticies);
 
     uint32_t staging_prop_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
      
@@ -1142,7 +1150,13 @@ std::pair<VkBuffer, VkDeviceMemory> create_vertex_buffer(
     vkUnmapMemory(device, staging_mem);
 
     uint32_t usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    auto [vertex_buf, vertex_mem] = create_buffer(phys_device, device, mem_size, usage_flags, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    auto [vertex_buf, vertex_mem] = create_buffer(
+        phys_device,
+        device,
+        mem_size,
+        usage_flags,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
 
     copy_buffer(staging_buf, vertex_buf, mem_size, device, cmdpool, graphics_queue);
     vkDestroyBuffer(device, staging_buf, nullptr);
@@ -1152,18 +1166,48 @@ std::pair<VkBuffer, VkDeviceMemory> create_vertex_buffer(
 }
 
 
+std::pair<VkBuffer, VkDeviceMemory> create_index_buffer(
+    VkPhysicalDevice phys_device,
+    VkDevice device,
+    VkCommandPool cmdpool,
+    VkQueue graphics_queue,
+    std::vector<uint16_t> const& indices
+) {
+    VkDeviceSize size = flat_collection_size(indices);
+    VkMemoryPropertyFlags props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    auto [staging_buffer, staging_mem] = create_buffer(phys_device, device, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, props);
+
+    void* data;
+    vkMapMemory(device, staging_mem, 0, size, 0, &data);
+    memcpy(data, indices.data(), size);
+    vkUnmapMemory(device, staging_mem);
+
+
+    auto [index_buf, index_mem] = create_buffer(
+        phys_device,
+        device,
+        size,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+
+    copy_buffer(staging_buffer, index_buf, size, device, cmdpool, graphics_queue);
+
+    vkDeviceWaitIdle(device);
+    vkDestroyBuffer(device, staging_buffer, nullptr);
+    vkFreeMemory(device, staging_mem, nullptr);
+
+    return {index_buf, index_mem};
+}
+
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) 
 { 
-
     const std::vector<Vertex> verticies {
-        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+        {{-0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}},
         {{0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
         {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-
-        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-        {{-0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-        {{0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+        {{-0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}},
     };
 
     const std::vector<uint16_t> indices {
@@ -1171,14 +1215,15 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
         2, 3, 0
     };
 
+
     fmt::println("Starting");
     auto window = init_glfw();
     VkInstance instance {create_instance()};
     VkSurfaceKHR surface {create_surface(window, instance)};
     VkPhysicalDevice phys_device {find_physical_device(instance, surface)};
     VkDevice device {create_logical_device(phys_device, surface)};
-
     VkPipelineLayout pipeline_layout {create_pipeline_layout(device)};
+
 
     auto vert_module = create_shader_module(device, load_shader("shaders/vert.spv"));
     auto frag_module = create_shader_module(device, load_shader("shaders/frag.spv"));
@@ -1208,6 +1253,15 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
         verticies
     );
 
+    auto [index_buffer, index_mem] = create_index_buffer(
+        phys_device,
+        device,
+        command_pool,
+        graph_queue,
+        indices
+    );
+
+
     uint32_t current_frame {0};
     while (!glfwWindowShouldClose(window)) 
     {
@@ -1225,12 +1279,16 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
             graph_queue,
             present_queue,
             vertex_buf,
-            verticies
+            index_buffer,
+            indices.size()
         );
         current_frame = (current_frame + 1) % FRAME_COUNT;
     }
 
     vkDeviceWaitIdle(device);
+
+    vkDestroyBuffer(device, index_buffer, nullptr);
+    vkFreeMemory(device, index_mem, nullptr);
 
     vkDestroyBuffer(device, vertex_buf, nullptr);
     vkFreeMemory(device, vertex_mem, nullptr);
