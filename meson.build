@@ -31,6 +31,8 @@ sources = files(
   'src/main.cpp'
 )
 
+# subdir('shaders')
+
 executable(
   'renderer',
   sources,

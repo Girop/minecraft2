@@ -3,3 +3,4 @@ subprojects/*
 
 build/*
 .cache/*
+*.spv
