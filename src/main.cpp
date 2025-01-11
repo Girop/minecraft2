@@ -11,6 +11,7 @@
 #include <set>
 #include <filesystem>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 
 constexpr uint32_t FRAME_COUNT {2};
@@ -689,13 +690,13 @@ VkPipeline create_pipeline(
     return pipeline;
 }
 
-VkPipelineLayout create_pipeline_layout(VkDevice device) {
+VkPipelineLayout create_pipeline_layout(VkDevice device, VkDescriptorSetLayout desc_set_layout) {
     VkPipelineLayoutCreateInfo info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .setLayoutCount = 0,
-        .pSetLayouts = nullptr,
+        .setLayoutCount = 1,
+        .pSetLayouts = &desc_set_layout,
         .pushConstantRangeCount = 0,
         .pPushConstantRanges = nullptr
     };
@@ -828,6 +829,8 @@ void record_command_buffer(
     vkCmdBindVertexBuffers(cmd_buffer, 0, 1, &vert_buf, offsets);
     
     vkCmdBindIndexBuffer(cmd_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT16);
+
+    vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline, 0 , 1, descriptor_sets, 0, nullptr);
     vkCmdDrawIndexed(cmd_buffer, indices_count, 1, 0, 0, 0);
     vkCmdEndRenderPass(cmd_buffer);
 
@@ -1201,6 +1204,156 @@ std::pair<VkBuffer, VkDeviceMemory> create_index_buffer(
 }
 
 
+struct UniformBufferObject {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 projection;
+
+    static UniformBufferObject current(VkExtent2D extent) {
+        static auto start_time = std::chrono::high_resolution_clock::now();
+
+        auto current_time = std::chrono::high_resolution_clock::now();
+        float time_elapsed = std::chrono::duration<float, std::chrono::seconds::period>(current_time - start_time).count();
+        float resolution {extent.width / static_cast<float>(extent.height)};
+
+        UniformBufferObject ubo{};
+        ubo.model = glm::rotate(glm::mat4(1.0f), time_elapsed * glm::radians(90.f), glm::vec3(0.f, 0.f, 1.f));
+        ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(.0f, .0f, .0f), glm::vec3(.0f, .0f, 1.0f));
+        ubo.projection = glm::perspective(glm::radians(45.0f), resolution, 0.1f, 10.0f);
+        ubo.projection[1][1] *= -1;
+        return ubo;
+         
+    }
+};
+
+
+struct UniformBuffers {
+    std::vector<VkBuffer> buffers;
+    std::vector<VkDeviceMemory> buffer_memory;
+    std::vector<void*> mapped_memory;
+
+    static UniformBuffers create(VkPhysicalDevice phys_device, VkDevice device) {
+        VkDeviceSize size = sizeof(UniformBuffers);
+        UniformBuffers uni_buffs;
+        uni_buffs.buffers.resize(FRAME_COUNT);
+        uni_buffs.buffer_memory.resize(FRAME_COUNT);
+        uni_buffs.mapped_memory.resize(FRAME_COUNT);
+        
+        for (size_t idx {}; idx < FRAME_COUNT; ++idx) {
+            auto [alloc_buf, mem] = create_buffer(phys_device, device, size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            uni_buffs.buffers.at(idx) = alloc_buf;
+            uni_buffs.mapped_memory.at(idx) = mem;
+            vkMapMemory(device, uni_buffs.buffer_memory.at(idx), 0, size, 0, &uni_buffs.mapped_memory.at(idx));
+        }
+        return uni_buffs;
+    }
+    
+    void copy(UniformBufferObject const& ubo, uint32_t index) {
+        memcpy(mapped_memory.at(index), &ubo, sizeof ubo);
+    }
+
+
+    void destroy(VkDevice device) {
+        for (size_t idx{}; idx < FRAME_COUNT; ++idx) {
+            vkDestroyBuffer(device, buffers.at(idx), nullptr);
+            vkFreeMemory(device, buffer_memory.at(idx), nullptr);
+        }
+    }
+};
+
+
+VkDescriptorSetLayout create_descriptor_set_layout(VkDevice device) 
+{
+    VkDescriptorSetLayoutBinding ubo_layout_binding {
+        .binding = 0,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1,
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .pImmutableSamplers = nullptr,
+    };
+    
+
+    VkDescriptorSetLayoutCreateInfo info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .bindingCount = 1,
+        .pBindings = &ubo_layout_binding,
+    };
+
+    VkDescriptorSetLayout descriptor_set_layout;
+    assert(vkCreateDescriptorSetLayout(device, &info, nullptr, &descriptor_set_layout) == VK_SUCCESS);
+    return descriptor_set_layout;
+}
+
+
+VkDescriptorPool create_descriptor_pool(VkDevice device) {
+    VkDescriptorPoolSize size {
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = FRAME_COUNT,
+    };
+
+    VkDescriptorPoolCreateInfo info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .maxSets = FRAME_COUNT,
+        .poolSizeCount = 1,
+        .pPoolSizes = &size,
+    };
+
+    VkDescriptorPool pool;
+    assert(vkCreateDescriptorPool(device, &info, nullptr, &pool) == VK_SUCCESS);
+    return pool;
+}
+
+
+std::vector<VkDescriptorSet> create_descriptor_sets(
+    VkDevice device,
+    VkDescriptorPool descriptor_pool,
+    VkDescriptorSetLayout layout,
+    UniformBuffers const& uniform_buffers
+) {
+    std::vector<VkDescriptorSetLayout> descriptor_layouts(FRAME_COUNT, layout);
+
+    VkDescriptorSetAllocateInfo alloc_info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .descriptorPool = descriptor_pool,
+        .descriptorSetCount = FRAME_COUNT,
+        .pSetLayouts = descriptor_layouts.data()
+    };
+
+    std::vector<VkDescriptorSet> descriptor_sets;
+    descriptor_sets.resize(FRAME_COUNT);
+    assert(vkAllocateDescriptorSets(device,  &alloc_info, descriptor_sets.data()) == VK_SUCCESS);
+
+
+    for (size_t frame_idx{}; frame_idx < FRAME_COUNT; ++frame_idx) {
+        VkDescriptorBufferInfo buffer_info {
+            .buffer = uniform_buffers.buffers.at(frame_idx),
+            .offset = 0,
+            .range = sizeof(UniformBufferObject)
+        };
+
+        VkWriteDescriptorSet desc_write {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = nullptr,
+            .dstSet = descriptor_sets.at(frame_idx),
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .pImageInfo = nullptr,
+            .pBufferInfo = &buffer_info,
+            .pTexelBufferView = nullptr,
+        };
+        vkUpdateDescriptorSets(device, 1, &desc_write, 0, nullptr);
+    }
+    return descriptor_sets;
+}
+
+
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) 
 { 
     const std::vector<Vertex> verticies {
@@ -1215,15 +1368,18 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
         2, 3, 0
     };
 
-
     fmt::println("Starting");
     auto window = init_glfw();
     VkInstance instance {create_instance()};
     VkSurfaceKHR surface {create_surface(window, instance)};
     VkPhysicalDevice phys_device {find_physical_device(instance, surface)};
     VkDevice device {create_logical_device(phys_device, surface)};
-    VkPipelineLayout pipeline_layout {create_pipeline_layout(device)};
+    VkDescriptorSetLayout desc_set_layout = create_descriptor_set_layout(device);
+    VkPipelineLayout pipeline_layout = create_pipeline_layout(device, desc_set_layout);
+    VkDescriptorPool descriptor_pool = create_descriptor_pool(device);
 
+    auto uniform_buffers = UniformBuffers::create(phys_device, device);
+    auto descriptor_sets = create_descriptor_sets(device, descriptor_pool, desc_set_layout, uniform_buffers);
 
     auto vert_module = create_shader_module(device, load_shader("shaders/vert.spv"));
     auto frag_module = create_shader_module(device, load_shader("shaders/frag.spv"));
@@ -1245,6 +1401,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
     auto graph_queue = get_graph_queue(device, phys_device, surface);
     auto present_queue = get_present_queue(device, phys_device, surface);
     auto primitives = SynchronizationPrimitives::create(device, FRAME_COUNT);
+
     auto [vertex_buf, vertex_mem] = create_vertex_buffer(
         phys_device,
         device,
@@ -1261,10 +1418,12 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
         indices
     );
 
-
     uint32_t current_frame {0};
     while (!glfwWindowShouldClose(window)) 
     {
+        auto ubo = UniformBufferObject::current(swapchain_data.swapchain.extent);
+        uniform_buffers.copy(ubo, current_frame);
+
         glfwPollEvents();
         draw_frame(
             window,
@@ -1287,11 +1446,15 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 
     vkDeviceWaitIdle(device);
 
+    ubos.destroy(device);
+
     vkDestroyBuffer(device, index_buffer, nullptr);
     vkFreeMemory(device, index_mem, nullptr);
 
     vkDestroyBuffer(device, vertex_buf, nullptr);
     vkFreeMemory(device, vertex_mem, nullptr);
+
+    vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
 
     primitives.destroy(device);
     vkDestroyCommandPool(device, command_pool, nullptr);

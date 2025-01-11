@@ -8,6 +8,7 @@ add_project_arguments(
   '-DVK_PROTOTYPES',
   '-DVK_USE_PLATFORM_WIN32_KHR',
   '-DGLFW_INCLUDE_VULKAN',
+  '-DGLM_FORCE_RADIANS ',
   language: 'cpp'
 )
 
