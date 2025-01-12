@@ -1385,13 +1385,13 @@ std::vector<VkDescriptorSet> create_descriptor_sets(
 }
 
 
-void log_gpu_info(VkPhysicalDevice device) {
+void log_gpu_info(VkPhysicalDevice device) 
+{
     VkPhysicalDeviceProperties device_props;
     vkGetPhysicalDeviceProperties(device, &device_props);
-    // VkPhysicalDeviceFeatures dev_features;
-    // vkGetPhysicalDeviceFeatures(device, &dev_features);
     fmt::println("Name - {}", device_props.deviceName);
 }
+
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) 
 { 
@@ -1406,6 +1406,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
         0, 1, 2, //
         2, 3, 0
     };
+
     fmt::println("Starting");
     auto window = init_glfw();
     VkInstance instance {create_instance()};
@@ -1420,8 +1421,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
     auto uniform_buffers = UniformBuffers::create(phys_device, device);
     auto descriptor_sets = create_descriptor_sets(device, descriptor_pool, desc_set_layout, uniform_buffers);
 
-    auto vert_module = create_shader_module(device, load_shader("shaders/vert.spv"));
-    auto frag_module = create_shader_module(device, load_shader("shaders/frag.spv"));
+    auto vert_module = create_shader_module(device, load_shader("build/shaders/triangle.vert.spv"));
+    auto frag_module = create_shader_module(device, load_shader("build/shaders/triangle.frag.spv"));
 
     auto swapchain_data = SwapchainFixedData::create(phys_device, device, surface, window);
 

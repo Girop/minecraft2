@@ -28,22 +28,24 @@ cpp_args = [
 
 fmt = subproject('fmt', default_options: 'default_library=static')
 
+
+subdir('shaders')
+
 deps = [
   dependency('glm'),
   fmt.get_variable('fmt_dep'),
   dependency('vulkan'),
   dependency('glfw3', static: true, method: 'pkg-config'),
+  shader_dep
 ]
 
 sources = files(
   'src/main.cpp'
 )
 
-# subdir('shaders')
-
 executable(
   'renderer',
   sources,
   cpp_args: cpp_args,
-  dependencies: deps
+  dependencies: deps,
 )
