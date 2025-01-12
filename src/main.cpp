@@ -12,9 +12,54 @@
 #include <filesystem>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <source_location>
 
+
+void check_vk(VkResult result, std::source_location loc = std::source_location::current()) 
+{
+    if (result != VK_SUCCESS) {
+        fmt::println("Vulkan operation vailed: {}", result ? "0" : "1");
+        fmt::println("Location: {} - {} - {}", loc.file_name(), loc.function_name(), loc.line());
+        exit(1);
+    }
+}
 
 constexpr uint32_t FRAME_COUNT {2};
+
+constexpr std::array activated_validation_layers {
+    "VK_LAYER_KHRONOS_validation"
+};
+
+
+void verify_validation_layers() 
+{
+    uint32_t layerCount{};
+    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+    std::vector<VkLayerProperties> available_layers;
+    available_layers.resize(layerCount);
+    vkEnumerateInstanceLayerProperties(&layerCount, available_layers.data());
+    
+    bool all_found {true};
+
+    for (auto& layer: activated_validation_layers) {
+        auto found_it = std::ranges::find_if(available_layers, [&layer](auto& elem) {
+            return std::strcmp(elem.layerName, layer) == 0;
+        });
+        
+        fmt::print("Validation layer {}: ", layer);
+        if (found_it != available_layers.end()) {
+            fmt::println("FOUND");
+        } else {
+            fmt::println("MISSING");
+            all_found = false;
+        }
+    }
+
+    if (not all_found) {
+        fmt::println("Missing validation layers, aborting");
+        exit(1);
+    }
+}
 
 VkInstance create_instance() {
     VkApplicationInfo appInfo {
@@ -27,27 +72,10 @@ VkInstance create_instance() {
         .apiVersion = VK_API_VERSION_1_0,
     };
 
-    std::array extensions {
-        VK_KHR_SURFACE_EXTENSION_NAME,
-        VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-    };
-
-    std::array activated_validation_layers {
-        "VK_LAYER_KHRONOS_validation"
-    };
-
-    uint32_t layerCount{};
-    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-    std::vector<VkLayerProperties> available_layers(layerCount);
-    vkEnumerateInstanceLayerProperties(&layerCount, available_layers.data());
-    
-    for (auto& layer: activated_validation_layers) {
-        auto found_it = std::ranges::find_if(available_layers, [&layer](auto& elem) {
-            return std::strcmp(elem.layerName, layer) == 0;
-        });
-        assert(found_it != available_layers.end());
-    }
-
+    uint32_t extensionCount{};
+    auto vulkan_extensions = glfwGetRequiredInstanceExtensions(&extensionCount);
+        
+    verify_validation_layers();
     VkInstanceCreateInfo createInfo {
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pNext = nullptr,
@@ -55,12 +83,12 @@ VkInstance create_instance() {
         .pApplicationInfo = &appInfo,
         .enabledLayerCount = activated_validation_layers.size(),
         .ppEnabledLayerNames = activated_validation_layers.data(),
-        .enabledExtensionCount = extensions.size(),
-        .ppEnabledExtensionNames = extensions.data(),
+        .enabledExtensionCount = extensionCount,
+        .ppEnabledExtensionNames = vulkan_extensions,
     };
 
     VkInstance instance;
-    assert(vkCreateInstance(&createInfo, nullptr, &instance) == VK_SUCCESS);
+    check_vk(vkCreateInstance(&createInfo, nullptr, &instance));
     return instance;
 }
 
@@ -109,7 +137,6 @@ constexpr std::array device_extensions {
 
 bool supports_extensions(VkPhysicalDevice device) {
     uint32_t extension_count{};
-
     vkEnumerateDeviceExtensionProperties(device, nullptr, &extension_count, nullptr);
     
     std::vector<VkExtensionProperties> extensions(extension_count);
@@ -208,7 +235,10 @@ bool is_typical_gpu(VkPhysicalDevice device) {
     vkGetPhysicalDeviceProperties(device, &device_props);
     vkGetPhysicalDeviceFeatures(device, &dev_features);
 
-    return device_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU and dev_features.geometryShader;
+    return (
+        device_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU or
+        device_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU  
+    ) and dev_features.geometryShader;
 }
 
 
@@ -220,8 +250,8 @@ bool is_device_suitable(VkPhysicalDevice device, VkSurfaceKHR surface) {
             ? SwapChainSupportDetails::query_from(device, surface).supported() 
             : false
     };
-
-    return is_typical_gpu(device)
+    bool is_typical = is_typical_gpu(device);
+    return is_typical
         and extensisons_supported
         and swapchain_complete
         and matching_queues_present;
@@ -259,7 +289,7 @@ VkDevice create_logical_device(VkPhysicalDevice device, VkSurfaceKHR surface) {
     }
 
     VkPhysicalDeviceFeatures dev_features{};
-
+     
     VkDeviceCreateInfo device_create_info {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext = nullptr,
@@ -274,8 +304,7 @@ VkDevice create_logical_device(VkPhysicalDevice device, VkSurfaceKHR surface) {
     };
 
     VkDevice logical_device{};
-    assert(vkCreateDevice(device, &device_create_info, nullptr, &logical_device) == VK_SUCCESS);
-    assert(logical_device != VK_NULL_HANDLE);
+    check_vk(vkCreateDevice(device, &device_create_info, nullptr, &logical_device));
     return logical_device;
 }
 
@@ -356,7 +385,7 @@ SwapChainResult create_swapchain(
     };
 
     VkSwapchainKHR swapchain;
-    assert(vkCreateSwapchainKHR(device, &create_info, nullptr, &swapchain) == VK_SUCCESS);
+    check_vk(vkCreateSwapchainKHR(device, &create_info, nullptr, &swapchain));
     return {
         swapchain,
         format.format,
@@ -392,7 +421,7 @@ std::vector<VkImageView> create_imageviews(SwapChainResult const& swapchain, VkD
             },
         };
 
-        assert(vkCreateImageView(device, &info, nullptr, &views[idx]) == VK_SUCCESS);
+        check_vk(vkCreateImageView(device, &info, nullptr, &views[idx]));
     }
     return views;
 }
@@ -456,7 +485,7 @@ VkShaderModule create_shader_module(VkDevice device, std::vector<char> const& co
     };
 
     VkShaderModule module;
-    assert(vkCreateShaderModule(device, &info, nullptr, &module) == VK_SUCCESS);
+    check_vk(vkCreateShaderModule(device, &info, nullptr, &module));
     return module;
 }
 
@@ -514,7 +543,7 @@ VkRenderPass create_render_pass(VkDevice device, VkFormat format) {
     };
 
     VkRenderPass render_pass;
-    assert(vkCreateRenderPass(device, &render_pass_info, nullptr, &render_pass) == VK_SUCCESS);
+    check_vk(vkCreateRenderPass(device, &render_pass_info, nullptr, &render_pass));
     return render_pass;
 }
 
@@ -661,8 +690,6 @@ VkPipeline create_pipeline(
         .blendConstants = {0.0f, 0.0f, 0.0f, 0.0f},
     };
 
-
-
     VkGraphicsPipelineCreateInfo pipeline_info {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext = nullptr,
@@ -686,7 +713,7 @@ VkPipeline create_pipeline(
     };
 
     VkPipeline pipeline;
-    assert(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline) == VK_SUCCESS);
+    check_vk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline));
     return pipeline;
 }
 
@@ -702,7 +729,7 @@ VkPipelineLayout create_pipeline_layout(VkDevice device, VkDescriptorSetLayout d
     };
 
     VkPipelineLayout layout;
-    assert(vkCreatePipelineLayout(device, &info, nullptr, &layout) == VK_SUCCESS);
+    check_vk(vkCreatePipelineLayout(device, &info, nullptr, &layout));
     return layout;
 }
 
@@ -736,7 +763,7 @@ std::vector<VkFramebuffer> get_framebuffers(
             .height = extent.height,
             .layers = 1
         };
-        assert(vkCreateFramebuffer(device, &framebuffer_info, nullptr, &swapchain_framebuffers.at(idx)) == VK_SUCCESS);
+        check_vk(vkCreateFramebuffer(device, &framebuffer_info, nullptr, &swapchain_framebuffers.at(idx)));
     }
     return swapchain_framebuffers;
 }
@@ -751,7 +778,7 @@ VkCommandPool create_command_pool(VkPhysicalDevice phy_device, VkDevice device, 
         .queueFamilyIndex = queue_families.graphics.value()
     };
     VkCommandPool comand_pool;
-    assert(vkCreateCommandPool(device, &info, nullptr, &comand_pool) == VK_SUCCESS);
+    check_vk(vkCreateCommandPool(device, &info, nullptr, &comand_pool));
     return comand_pool;
 }
 
@@ -766,7 +793,7 @@ std::vector<VkCommandBuffer> allocate_command_buffers(VkDevice device, VkCommand
 
     std::vector<VkCommandBuffer> buffer;
     buffer.resize(FRAME_COUNT);
-    assert(vkAllocateCommandBuffers(device, &info, buffer.data()) == VK_SUCCESS);
+    check_vk(vkAllocateCommandBuffers(device, &info, buffer.data()));
     return buffer;
 }
 
@@ -790,7 +817,7 @@ void record_command_buffer(
         .pInheritanceInfo = nullptr
     };
 
-    assert(vkBeginCommandBuffer(cmd_buffer, &buffer_begin_info) == VK_SUCCESS);
+    check_vk(vkBeginCommandBuffer(cmd_buffer, &buffer_begin_info));
     
     VkClearValue clear_color {{{0.0f, 0.0f, 0.0f, 1.0f}}}; // {{lol}}
 
@@ -834,7 +861,7 @@ void record_command_buffer(
     vkCmdDrawIndexed(cmd_buffer, indices_count, 1, 0, 0, 0);
     vkCmdEndRenderPass(cmd_buffer);
 
-    assert(vkEndCommandBuffer(cmd_buffer) == VK_SUCCESS);
+    check_vk(vkEndCommandBuffer(cmd_buffer));
 }
 
 VkSemaphore create_semaphore(VkDevice device) {
@@ -845,7 +872,7 @@ VkSemaphore create_semaphore(VkDevice device) {
     };
 
     VkSemaphore sem;
-    assert(vkCreateSemaphore(device, &info, nullptr, &sem) == VK_SUCCESS);
+    check_vk(vkCreateSemaphore(device, &info, nullptr, &sem));
     return sem;
 }
 
@@ -856,7 +883,7 @@ VkFence create_signaled_fence(VkDevice device) {
         .flags = VK_FENCE_CREATE_SIGNALED_BIT
     };
     VkFence fence;
-    assert(vkCreateFence(device, &info, nullptr, &fence) == VK_SUCCESS);
+    check_vk(vkCreateFence(device, &info, nullptr, &fence));
     return fence;
 }
 
@@ -969,7 +996,7 @@ void draw_frame(
         swapchain.recreate(window, phys_device, device, surface);
         return; 
     } 
-    assert(success == VK_SUCCESS);
+    check_vk(success);
     vkResetFences(device, 1, &current_fence);
 
     vkResetCommandBuffer(command_buffer, 0);
@@ -1000,7 +1027,7 @@ void draw_frame(
         .pSignalSemaphores = &render_finished
     };
 
-    assert(vkQueueSubmit(graphics_queue, 1, &info, current_fence) == VK_SUCCESS);
+    check_vk(vkQueueSubmit(graphics_queue, 1, &info, current_fence));
 
     VkPresentInfoKHR present_info {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -1023,6 +1050,7 @@ uint32_t find_memory_type_idx(VkPhysicalDevice device, uint32_t type_filter, VkM
     for (uint32_t idx{0}; idx < memory_props.memoryTypeCount; ++idx) {
         bool prop_pattern_matches = (memory_props.memoryTypes[idx].propertyFlags & props) == props;
         bool type_matches = type_filter & (1 << idx);
+
         if (prop_pattern_matches and type_matches) {
             res = idx;
             break;
@@ -1052,7 +1080,7 @@ std::pair<VkBuffer, VkDeviceMemory> create_buffer(
 
 
     std::pair<VkBuffer, VkDeviceMemory> result;
-    assert(vkCreateBuffer(device, &buff_info, nullptr, &result.first) == VK_SUCCESS);
+    check_vk(vkCreateBuffer(device, &buff_info, nullptr, &result.first));
 
     VkMemoryRequirements mem_reqs; 
     vkGetBufferMemoryRequirements(device, result.first, &mem_reqs);
@@ -1064,7 +1092,7 @@ std::pair<VkBuffer, VkDeviceMemory> create_buffer(
         .memoryTypeIndex = find_memory_type_idx(phys_device, mem_reqs.memoryTypeBits, props)
     };
 
-    assert(vkAllocateMemory(device, &allocation_info, nullptr, &result.second) == VK_SUCCESS);
+    check_vk(vkAllocateMemory(device, &allocation_info, nullptr, &result.second));
     vkBindBufferMemory(device, result.first, result.second, 0);
     return result;
 }
@@ -1142,7 +1170,6 @@ std::pair<VkBuffer, VkDeviceMemory> create_vertex_buffer(
     size_t mem_size = flat_collection_size(verticies);
 
     uint32_t staging_prop_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-     
     auto [staging_buf, staging_mem] = create_buffer(
         phys_device,
         device,
@@ -1358,6 +1385,14 @@ std::vector<VkDescriptorSet> create_descriptor_sets(
 }
 
 
+void log_gpu_info(VkPhysicalDevice device) {
+    VkPhysicalDeviceProperties device_props;
+    vkGetPhysicalDeviceProperties(device, &device_props);
+    // VkPhysicalDeviceFeatures dev_features;
+    // vkGetPhysicalDeviceFeatures(device, &dev_features);
+    fmt::println("Name - {}", device_props.deviceName);
+}
+
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) 
 { 
     const std::vector<Vertex> verticies {
@@ -1371,12 +1406,12 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
         0, 1, 2, //
         2, 3, 0
     };
-
     fmt::println("Starting");
     auto window = init_glfw();
     VkInstance instance {create_instance()};
     VkSurfaceKHR surface {create_surface(window, instance)};
     VkPhysicalDevice phys_device {find_physical_device(instance, surface)};
+    log_gpu_info(phys_device);
     VkDevice device {create_logical_device(phys_device, surface)};
     VkDescriptorSetLayout desc_set_layout = create_descriptor_set_layout(device);
     VkPipelineLayout pipeline_layout = create_pipeline_layout(device, desc_set_layout);

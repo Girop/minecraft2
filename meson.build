@@ -4,9 +4,16 @@ project(
   default_options: ['cpp_std=c++20']
 )
 
+
+if host_machine.system() == 'windows'
+add_project_arguments(
+  '-DVK_USE_PLATFORM_WIN32_KHR',
+  language: 'cpp',
+)
+endif 
+
 add_project_arguments(
   '-DVK_PROTOTYPES',
-  '-DVK_USE_PLATFORM_WIN32_KHR',
   '-DGLFW_INCLUDE_VULKAN',
   '-DGLM_FORCE_RADIANS ',
   language: 'cpp'
@@ -25,7 +32,7 @@ deps = [
   dependency('glm'),
   fmt.get_variable('fmt_dep'),
   dependency('vulkan'),
-  dependency('glfw3')
+  dependency('glfw3', static: true, method: 'pkg-config'),
 ]
 
 sources = files(
