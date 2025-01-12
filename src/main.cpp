@@ -618,7 +618,7 @@ VkPipeline create_pipeline(
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
         .cullMode = VK_CULL_MODE_NONE,
-        .frontFace = VK_FRONT_FACE_CLOCKWISE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .depthBiasEnable = VK_FALSE,
         .depthBiasConstantFactor = 0.0f,
         .depthBiasClamp = 0.0f,
@@ -776,9 +776,11 @@ void record_command_buffer(
     VkRenderPass render_pass,
     VkExtent2D extent,
     VkPipeline pipeline,
+    VkPipelineLayout layout,
     VkBuffer vert_buf,
     VkBuffer index_buffer,
-    size_t indices_count
+    size_t indices_count,
+    VkDescriptorSet& desc_set
 )
 {
     VkCommandBufferBeginInfo buffer_begin_info {
@@ -827,10 +829,8 @@ void record_command_buffer(
 
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(cmd_buffer, 0, 1, &vert_buf, offsets);
-    
     vkCmdBindIndexBuffer(cmd_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT16);
-
-    vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline, 0 , 1, descriptor_sets, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0 , 1, &desc_set, 0, nullptr);
     vkCmdDrawIndexed(cmd_buffer, indices_count, 1, 0, 0, 0);
     vkCmdEndRenderPass(cmd_buffer);
 
@@ -949,11 +949,13 @@ void draw_frame(
     SynchronizationPrimitives const& primitives,
     VkCommandBuffer command_buffer,
     VkPipeline pipeline,
+    VkPipelineLayout layout,
     VkQueue graphics_queue,
     VkQueue present_queue,
     VkBuffer vert_buffer,
     VkBuffer index_buffer,
-    size_t index_count
+    size_t index_count,
+    VkDescriptorSet& descriptor_set
 ) {
     auto current_fence = primitives.inlight_fence.at(current_frame);
     auto image_avail = primitives.image_available.at(current_frame);
@@ -977,9 +979,11 @@ void draw_frame(
         swapchain.render_pass,
         swapchain.swapchain.extent,
         pipeline,
+        layout,
         vert_buffer,
         index_buffer,
-        index_count
+        index_count,
+        descriptor_set
     );
 
     
@@ -1229,34 +1233,34 @@ struct UniformBufferObject {
 
 struct UniformBuffers {
     std::vector<VkBuffer> buffers;
-    std::vector<VkDeviceMemory> buffer_memory;
-    std::vector<void*> mapped_memory;
+    std::vector<VkDeviceMemory> memory;
+    std::vector<void*> mapped_ptr;
 
     static UniformBuffers create(VkPhysicalDevice phys_device, VkDevice device) {
-        VkDeviceSize size = sizeof(UniformBuffers);
+        VkDeviceSize size = sizeof(UniformBufferObject);
         UniformBuffers uni_buffs;
         uni_buffs.buffers.resize(FRAME_COUNT);
-        uni_buffs.buffer_memory.resize(FRAME_COUNT);
-        uni_buffs.mapped_memory.resize(FRAME_COUNT);
+        uni_buffs.memory.resize(FRAME_COUNT);
+        uni_buffs.mapped_ptr.resize(FRAME_COUNT);
         
         for (size_t idx {}; idx < FRAME_COUNT; ++idx) {
             auto [alloc_buf, mem] = create_buffer(phys_device, device, size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
             uni_buffs.buffers.at(idx) = alloc_buf;
-            uni_buffs.mapped_memory.at(idx) = mem;
-            vkMapMemory(device, uni_buffs.buffer_memory.at(idx), 0, size, 0, &uni_buffs.mapped_memory.at(idx));
+            uni_buffs.memory.at(idx) = mem;
+            auto& maped_mem = uni_buffs.mapped_ptr.at(idx);
+            vkMapMemory(device, uni_buffs.memory.at(idx), 0, size, 0, &maped_mem);
         }
         return uni_buffs;
     }
     
     void copy(UniformBufferObject const& ubo, uint32_t index) {
-        memcpy(mapped_memory.at(index), &ubo, sizeof ubo);
+        memcpy(mapped_ptr.at(index), &ubo, sizeof ubo);
     }
-
 
     void destroy(VkDevice device) {
         for (size_t idx{}; idx < FRAME_COUNT; ++idx) {
             vkDestroyBuffer(device, buffers.at(idx), nullptr);
-            vkFreeMemory(device, buffer_memory.at(idx), nullptr);
+            vkFreeMemory(device, memory.at(idx), nullptr);
         }
     }
 };
@@ -1435,18 +1439,22 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
             primitives,
             command_buffer.at(current_frame),
             pipeline,
+            pipeline_layout,
             graph_queue,
             present_queue,
             vertex_buf,
             index_buffer,
-            indices.size()
+            indices.size(),
+            descriptor_sets.at(current_frame)
         );
         current_frame = (current_frame + 1) % FRAME_COUNT;
     }
 
     vkDeviceWaitIdle(device);
 
-    ubos.destroy(device);
+    uniform_buffers.destroy(device);
+
+    vkDestroyDescriptorSetLayout(device, desc_set_layout, nullptr);
 
     vkDestroyBuffer(device, index_buffer, nullptr);
     vkFreeMemory(device, index_mem, nullptr);
@@ -1471,6 +1479,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
     glfwDestroyWindow(window);
     glfwTerminate();
 
-    fmt::print("Success\n");
+    fmt::println("Success");
     return 0;
 } 
