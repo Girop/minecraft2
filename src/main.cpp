@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.h>
 #include <fmt/format.h>
 #include <fstream>
+#include <unordered_map>
 #include <array>
 #include <optional>
 #include <algorithm>
@@ -30,6 +31,51 @@ constexpr std::array activated_validation_layers {
     "VK_LAYER_KHRONOS_validation"
 };
 
+
+class Window {
+public:
+    Window(const char* name, int width = 800, int heighth = 600): 
+        handle_{create_handle(name, width, heighth)} 
+    {}
+
+    GLFWwindow* handle() const {
+        return handle_;
+    }
+
+    glm::ivec2 size() const {
+        int width, height;
+        glfwGetFramebufferSize(handle_, &width, &height);
+        return {width, height};
+    }
+
+    bool should_close() const {
+        return glfwWindowShouldClose(handle_);
+    }
+
+    Window(Window const&) = delete;
+    Window operator=(Window const&) = delete;
+
+    Window(Window&&) noexcept = default;
+    Window& operator=(Window&&) noexcept = default;
+
+    ~Window() {
+        glfwDestroyWindow(handle_);
+    }
+
+private:
+    GLFWwindow* create_handle(char const* name, int width, int heighth) const
+    {
+        if (not glfwInit()) 
+        {
+            fmt::println("Failed to create window");
+            std::abort();
+        }
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        return glfwCreateWindow(width, heighth, name, nullptr, nullptr);
+    }
+
+    GLFWwindow* handle_;
+};
 
 void verify_validation_layers() 
 {
@@ -177,20 +223,17 @@ struct SwapChainSupportDetails {
         return details;
     }
     
-    VkExtent2D choose_swap_extent(GLFWwindow* window) const {
+    VkExtent2D choose_swap_extent(Window const& window) const {
         if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
             return capabilities.currentExtent;
         }
-        int width, height;
-        glfwGetFramebufferSize(window, &width, &height);
+        auto size = window.size();
         VkExtent2D extent {
-            .width = static_cast<uint32_t>(width),
-            .height = static_cast<uint32_t>(height)
+            .width = static_cast<uint32_t>(size.x),
+            .height = static_cast<uint32_t>(size.y)
         };
-
         extent.width = std::clamp(extent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
         extent.height = std::clamp(extent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
-
         return extent;
     }
 
@@ -329,7 +372,7 @@ VkQueue get_present_queue(VkDevice device, VkPhysicalDevice phys_device, VkSurfa
 
 VkSurfaceKHR create_surface(GLFWwindow* window, VkInstance vkinstance) {
     VkSurfaceKHR surface;
-    assert(glfwCreateWindowSurface(vkinstance, window, nullptr, &surface) == VK_SUCCESS);
+    check_vk(glfwCreateWindowSurface(vkinstance, window, nullptr, &surface));
     return surface;
 }
 
@@ -352,7 +395,7 @@ std::vector<VkImage> swapchain_images(VkSwapchainKHR swapchain, VkDevice device)
 
 SwapChainResult create_swapchain(
     SwapChainSupportDetails const& details,
-    GLFWwindow* window,
+    Window const& window,
     VkPhysicalDevice phys_device,
     VkDevice device,
     VkSurfaceKHR surface
@@ -427,7 +470,7 @@ std::vector<VkImageView> create_imageviews(SwapChainResult const& swapchain, VkD
 }
 
 struct Vertex {
-    glm::vec2 pos;
+    glm::vec3 pos;
     glm::vec3 color;
 
 
@@ -444,7 +487,7 @@ struct Vertex {
         auto& position {attributes.at(0)};
         position.binding = 0;
         position.location = 0;
-        position.format = VK_FORMAT_R32G32_SFLOAT;
+        position.format = VK_FORMAT_R32G32B32_SFLOAT;
         position.offset = offsetof(Vertex, pos);
 
 
@@ -556,14 +599,14 @@ VkPipeline create_pipeline(
     VkShaderModule vert_shader,
     VkShaderModule frag_shader
 ) {
-
+    constexpr auto name {"main"};
     VkPipelineShaderStageCreateInfo info_vert {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
         .stage = VK_SHADER_STAGE_VERTEX_BIT,
         .module = vert_shader,
-        .pName = "main",
+        .pName = name,
         .pSpecializationInfo = nullptr
     };
 
@@ -574,7 +617,7 @@ VkPipeline create_pipeline(
         .flags = 0,
         .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
         .module = frag_shader, 
-        .pName = "main",
+        .pName = name,
         .pSpecializationInfo = nullptr
     };
 
@@ -731,13 +774,6 @@ VkPipelineLayout create_pipeline_layout(VkDevice device, VkDescriptorSetLayout d
     VkPipelineLayout layout;
     check_vk(vkCreatePipelineLayout(device, &info, nullptr, &layout));
     return layout;
-}
-
-GLFWwindow* init_glfw() {
-    assert(glfwInit());
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window = glfwCreateWindow(800, 600, "Dummy renderer", nullptr, nullptr);
-    return window;
 }
 
 std::vector<VkFramebuffer> get_framebuffers(
@@ -922,7 +958,7 @@ struct SwapchainFixedData {
     VkRenderPass render_pass;
     std::vector<VkFramebuffer> framebuffers; 
 
-    static SwapchainFixedData create(VkPhysicalDevice phys_device, VkDevice device, VkSurfaceKHR surface, GLFWwindow* window)
+    static SwapchainFixedData create(VkPhysicalDevice phys_device, VkDevice device, VkSurfaceKHR surface, Window const& window)
     {
         auto details = SwapChainSupportDetails::query_from(phys_device, surface);
         auto swapchain = create_swapchain(details, window, phys_device, device, surface);
@@ -938,19 +974,16 @@ struct SwapchainFixedData {
         };
     }
 
-    void recreate(GLFWwindow* handle, VkPhysicalDevice phys_device, VkDevice device, VkSurfaceKHR surface)
+    void recreate(Window const& window, VkPhysicalDevice phys_device, VkDevice device, VkSurfaceKHR surface)
     {
         vkDeviceWaitIdle(device);
         destroy(device);
-
-        int width, height;
-        glfwGetFramebufferSize(handle, &width, &height);
-
-        while (width == 0 or height == 0) {
-            glfwGetFramebufferSize(handle, &width, &height);
+        auto size = window.size();
+        while (size.x == 0 or size.y == 0) {
+            size = window.size();
             glfwWaitEvents();
         }
-        *this = SwapchainFixedData::create(phys_device, device, surface, handle);
+        *this = SwapchainFixedData::create(phys_device, device, surface, window);
     }
 
     void destroy(VkDevice device) 
@@ -966,8 +999,10 @@ struct SwapchainFixedData {
     }
 };
 
+
+
 void draw_frame(
-    GLFWwindow* window,
+    Window const& window,
     VkDevice device,
     VkPhysicalDevice phys_device,
     VkSurfaceKHR surface,
@@ -992,10 +1027,12 @@ void draw_frame(
     
     uint32_t image_index;
     VkResult success = vkAcquireNextImageKHR(device, swapchain.swapchain.handle, UINT64_MAX, image_avail, VK_NULL_HANDLE, &image_index);
+
     if (success == VK_ERROR_OUT_OF_DATE_KHR or success == VK_SUBOPTIMAL_KHR) {
-        swapchain.recreate(window, phys_device, device, surface);
-        return; 
+        swapchain.recreate(window, phys_device, device, surface); // TODO: Might not resize, handle it in the GLFW window too
+        return;
     } 
+
     check_vk(success);
     vkResetFences(device, 1, &current_fence);
 
@@ -1235,25 +1272,30 @@ std::pair<VkBuffer, VkDeviceMemory> create_index_buffer(
 }
 
 
+glm::mat4 perspective_camera(VkExtent2D extent) 
+{
+    float aspect_ration {static_cast<float>(extent.width) / static_cast<float>(extent.height)};
+    return glm::perspective(glm::radians(45.0f), aspect_ration, 0.1f, 10.0f);
+}
+
+constexpr glm::vec3 UP_DIRECTION(0.0f, 1.0f, 0.0f);
+
 struct UniformBufferObject {
     glm::mat4 model;
     glm::mat4 view;
     glm::mat4 projection;
 
-    static UniformBufferObject current(VkExtent2D extent) {
-        static auto start_time = std::chrono::high_resolution_clock::now();
-
-        auto current_time = std::chrono::high_resolution_clock::now();
-        float time_elapsed = std::chrono::duration<float, std::chrono::seconds::period>(current_time - start_time).count();
-        float resolution {extent.width / static_cast<float>(extent.height)};
-
+    static UniformBufferObject current(VkExtent2D extent, glm::vec3 camera_position, glm::vec3 target_center) {
         UniformBufferObject ubo{};
-        ubo.model = glm::rotate(glm::mat4(1.0f), time_elapsed * glm::radians(90.f), glm::vec3(0.f, 0.f, 1.f));
-        ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(.0f, .0f, .0f), glm::vec3(.0f, .0f, 1.0f));
-        ubo.projection = glm::perspective(glm::radians(45.0f), resolution, 0.1f, 10.0f);
-        ubo.projection[1][1] *= -1;
+        ubo.model = glm::mat4(1.0f);
+        glm::vec3 camera_direction = glm::normalize(camera_position - target_center);
+        glm::vec3 camera_right = glm::normalize(glm::cross(UP_DIRECTION, camera_direction));
+        glm::vec3 camera_up = glm::normalize(glm::cross(camera_direction, camera_right));
+
+        ubo.view = glm::lookAt(camera_position, target_center, camera_up);
+        ubo.projection = perspective_camera(extent);
+         // ubo.projection[1][1] *= -1;
         return ubo;
-         
     }
 };
 
@@ -1384,6 +1426,35 @@ std::vector<VkDescriptorSet> create_descriptor_sets(
     return descriptor_sets;
 }
 
+enum class Action {
+    Left,
+    Right,
+    Forward,
+    Backward,
+    Up,
+    Down,
+};
+
+static std::vector<Action> frame_actions;
+static const std::unordered_map<int, Action> mapping {
+    {GLFW_KEY_W, Action::Forward},
+    {GLFW_KEY_S, Action::Backward},
+    {GLFW_KEY_A, Action::Left},
+    {GLFW_KEY_D, Action::Right},
+    {GLFW_KEY_LEFT_SHIFT, Action::Down},
+    {GLFW_KEY_SPACE, Action::Up},
+};
+
+constexpr float camera_speed {0.4f};
+
+
+void key_callback([[maybe_unused]] GLFWwindow* window, int key, [[maybe_unused]] int scancode, int action, [[maybe_unused]] int mods)
+{
+    if (action == GLFW_RELEASE) return;
+    if (mapping.find(key) == mapping.end()) return;
+    frame_actions.emplace_back(mapping.at(key));
+}
+
 
 void log_gpu_info(VkPhysicalDevice device) 
 {
@@ -1392,28 +1463,75 @@ void log_gpu_info(VkPhysicalDevice device)
     fmt::println("Name - {}", device_props.deviceName);
 }
 
+void update_camera(glm::vec3& camera_pos) {
+    for (auto action : frame_actions) {
+        switch (action) {
+            case Action::Forward:
+                camera_pos.z += camera_speed;
+                break;
+            case Action::Backward:
+                camera_pos.z -= camera_speed;
+                break;
+            case Action::Left:
+                camera_pos.x -= camera_speed;
+                break;
+            case Action::Right:
+                camera_pos.x += camera_speed;
+                break;
+            case Action::Down:
+                camera_pos.y -= camera_speed;
+                break;
+            case Action::Up:
+                camera_pos.y += camera_speed;
+                break;
+        }
+    }
+    frame_actions.clear();
+
+}
+
+
+constexpr glm::vec3 red {1.f, 0.f, 0.f};
+constexpr glm::vec3 blue {0.f, 0.f, 1.f};
+constexpr glm::vec3 green {0.f, 1.f, 0.f};
+
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) 
 { 
-    const std::vector<Vertex> verticies {
-        {{-0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}},
-        {{0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-        {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-        {{-0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}},
+
+    constexpr float p {0.5f}; 
+
+    const std::vector<Vertex> verticies_back {
+        {{-p, -p, -p}, red}, // 0
+        {{-p, p, -p}, green}, // 1
+        {{p, p, -p}, blue}, // 2
+        {{p, -p, -p}, red}, // 3
+        {{p, -p, p}, green}, // 4
+        {{p, p, p}, blue}, // 5
+        {{-p, p, p}, red}, // 6
+        {{-p, -p, p}, green}, // 7
     };
 
     const std::vector<uint16_t> indices {
-        0, 1, 2, //
-        2, 3, 0
+        0, 1, 2, 0, 2, 3, // front
+        3,2,4, 2,4,5, // right
+        1, 0, 6, 0, 7, 6, // left
+        1, 2, 6, 2, 6, 5, // up
+        0, 3, 7, 3, 7, 4, // down
+        7, 4, 5, 7, 5, 6, // back
     };
 
     fmt::println("Starting");
-    auto window = init_glfw();
+    constexpr auto name {"Renderer"};
+
+    Window window {name};
+    glfwSetKeyCallback(window.handle(), key_callback);
+
     VkInstance instance {create_instance()};
-    VkSurfaceKHR surface {create_surface(window, instance)};
+    VkSurfaceKHR surface {create_surface(window.handle(), instance)};
     VkPhysicalDevice phys_device {find_physical_device(instance, surface)};
-    log_gpu_info(phys_device);
     VkDevice device {create_logical_device(phys_device, surface)};
+
     VkDescriptorSetLayout desc_set_layout = create_descriptor_set_layout(device);
     VkPipelineLayout pipeline_layout = create_pipeline_layout(device, desc_set_layout);
     VkDescriptorPool descriptor_pool = create_descriptor_pool(device);
@@ -1447,7 +1565,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
         device,
         command_pool,
         graph_queue,
-        verticies
+        verticies_back
     );
 
     auto [index_buffer, index_mem] = create_index_buffer(
@@ -1458,12 +1576,14 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
         indices
     );
 
+    auto camera_pos = glm::vec3(0.f, 0.f, 2.f);
+    glm::vec3 target {0.f, 0.f, 0.f};
     uint32_t current_frame {0};
-    while (!glfwWindowShouldClose(window)) 
+    while (not window.should_close()) 
     {
-        auto ubo = UniformBufferObject::current(swapchain_data.swapchain.extent);
+        const auto ubo = UniformBufferObject::current(swapchain_data.swapchain.extent, camera_pos, target);
         uniform_buffers.copy(ubo, current_frame);
-
+        update_camera(camera_pos);
         glfwPollEvents();
         draw_frame(
             window,
@@ -1512,7 +1632,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
     vkDestroyDevice(device, nullptr);
     vkDestroyInstance(instance, nullptr);
 
-    glfwDestroyWindow(window);
     glfwTerminate();
 
     fmt::println("Success");
