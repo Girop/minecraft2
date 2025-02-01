@@ -61,6 +61,8 @@ private:
     ) const;
     void submit(VkCommandBuffer cmd_buf, uint32_t image_index) const;
 
+    void update_camera(std::span<Action const> actions);
+
     Window window_;
     VkInstance instance_;
     VkSurfaceKHR surface_;
@@ -87,6 +89,7 @@ private:
     VkDescriptorSetLayout descriptor_set_layout_;
     VkDescriptorPool desc_pool_;
 
+    glm::vec3 camera_pos_{0, 0, 2.f};
     uint32_t frame_number_{0};
     std::array<FrameData, FRAME_OVERLAP> frame_data_;
     std::vector<std::function<void()>> deletion_queue_;

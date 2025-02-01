@@ -677,15 +677,40 @@ void Engine::prepare_framedata(uint32_t framebuffer_idx)
 
 void Engine::run() {
     while (not window_.should_close()) {
-        glfwPollEvents();
+        const auto actions = window_.collect_actions();
+        update_camera(actions);
         draw();
         ++frame_number_;
     }
 }
 
-constexpr auto camera_pos = glm::vec3(0.f, 0.f, 2.f);
 constexpr glm::vec3 target {0.f, 0.f, 0.f};
+constexpr float camera_speed {0.4f};
 
+void Engine::update_camera(std::span<Action const> actions) {
+    for (auto const action : actions) {
+        switch (action) {
+            case Action::Forward:
+                camera_pos_.z += camera_speed;
+                break;
+            case Action::Backward:
+                camera_pos_.z -= camera_speed;
+                break;
+            case Action::Left:
+                camera_pos_.x -= camera_speed;
+                break;
+            case Action::Right:
+                camera_pos_.x += camera_speed;
+                break;
+            case Action::Down:
+                camera_pos_.y -= camera_speed;
+                break;
+            case Action::Up:
+                camera_pos_.y += camera_speed;
+                break;
+        }
+    }
+}
 
 void Engine::draw() 
 {
@@ -704,7 +729,7 @@ void Engine::draw()
 
     check_vk(acquired_image);
     prepare_framedata(image_index);
-    frame.uniform_buffer.copy(UniformBufferObject::current(extent_, camera_pos, target));
+    frame.uniform_buffer.copy(UniformBufferObject::current(extent_, camera_pos_, target));
     record(frame.cmd_buffer, indices.size(), frame.descriptor_set);
     submit(frame.cmd_buffer, image_index);
 }
@@ -781,6 +806,7 @@ Buffer Engine::create_index_buf(std::span<uint16_t const> indicies) const {
 
 void Engine::shutdown() 
 {
+    vkDeviceWaitIdle(device_);
     for (const auto& deleter : deletion_queue_ | std::views::reverse) 
     {
         deleter();
