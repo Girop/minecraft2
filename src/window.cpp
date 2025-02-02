@@ -3,13 +3,14 @@
 #include <fmt/format.h>
 #include "window.hpp"
 
+// Nearly all directions are inverted, it is hack until I understand coordinate system
 static const std::unordered_map<int, Action> mapping {
-    {GLFW_KEY_W, Action::Forward},
-    {GLFW_KEY_S, Action::Backward},
-    {GLFW_KEY_A, Action::Left},
+    {GLFW_KEY_W, Action::Backward},
+    {GLFW_KEY_S, Action::Forward},
+    {GLFW_KEY_A, Action::Left}, 
     {GLFW_KEY_D, Action::Right},
-    {GLFW_KEY_LEFT_SHIFT, Action::Down},
-    {GLFW_KEY_SPACE, Action::Up},
+    {GLFW_KEY_LEFT_SHIFT, Action::Up},
+    {GLFW_KEY_SPACE, Action::Down},
 };
 
 
@@ -36,7 +37,7 @@ GLFWwindow* Window::create_handle(char const* name, int width, int height) const
 
 std::vector<Action> Window::collect_actions() {
     glfwPollEvents();
-    auto&& collected {std::move(actions_)};
+    const auto collected {actions_};
     actions_.clear();
     return collected;
 }

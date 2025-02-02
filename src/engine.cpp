@@ -130,7 +130,7 @@ class DeviceFinder
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extension_count, extensions.data());
 
         std::set<std::string> required_extensions(DEVICE_EXTENSIONS.begin(), DEVICE_EXTENSIONS.end());
-        for (const auto &extension : extensions)
+        for (auto const& extension : extensions)
         {
             required_extensions.erase(extension.extensionName);
         }
@@ -450,7 +450,7 @@ constexpr glm::vec3 red{1.f, 0.f, 0.f};
 constexpr glm::vec3 blue{0.f, 0.f, 1.f};
 constexpr glm::vec3 green{0.f, 1.f, 0.f};
 
-constexpr float p{0.5f};
+constexpr float p {0.5f};
 const std::vector<Vertex> verticies_back{
     {{-p, -p, -p}, red},  // 0
     {{-p, p, -p}, green}, // 1
@@ -711,7 +711,7 @@ void Engine::record(VkCommandBuffer cmd_buff, size_t count, VkDescriptorSet desc
 
 void Engine::prepare_framedata(uint32_t framebuffer_idx)
 {
-    auto &frame = current_frame();
+    auto& frame = current_frame();
     frame.framebuffer = frame_buffers_.at(framebuffer_idx);
     vkResetCommandBuffer(frame.cmd_buffer, 0);
 }
@@ -720,7 +720,7 @@ void Engine::run()
 {
     while (not window_.should_close())
     {
-        const auto actions = window_.collect_actions();
+        auto const actions = window_.collect_actions();
         update_camera(actions);
         draw();
         ++frame_number_;
@@ -728,7 +728,7 @@ void Engine::run()
 }
 
 constexpr glm::vec3 target{0.f, 0.f, 0.f};
-constexpr float camera_speed{0.1f};
+constexpr float camera_speed{0.04f};
 
 void Engine::update_camera(std::span<Action const> actions)
 {
@@ -859,7 +859,7 @@ Buffer Engine::create_index_buf(std::span<uint16_t const> indicies) const
 void Engine::shutdown()
 {
     vkDeviceWaitIdle(device_);
-    for (const auto &deleter : deletion_queue_ | std::views::reverse)
+    for (auto const& deleter : deletion_queue_ | std::views::reverse)
     {
         deleter();
     }

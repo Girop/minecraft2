@@ -1,4 +1,3 @@
-#include <chrono>
 #include <glm/gtc/matrix_transform.hpp>
 #include "uniforms.hpp"
 
@@ -13,12 +12,8 @@ constexpr glm::vec3 UP_DIRECTION(0.0f, 1.0f, 0.0f);
 
 UniformBufferObject UniformBufferObject::current(VkExtent2D extent, glm::vec3 camera_position, glm::vec3 target_center)
 {
-    static auto start_time = std::chrono::high_resolution_clock::now();
-    auto current_time = std::chrono::high_resolution_clock::now();
-    float elapsed = std::chrono::duration<float, std::chrono::seconds::period>(current_time - start_time).count();
-
     UniformBufferObject ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), elapsed * glm::radians(90.0f), glm::vec3(0.f, 1.f, 0.f));
+    ubo.model = glm::mat4(1.0f);
     glm::vec3 camera_direction = glm::normalize(camera_position - target_center);
     glm::vec3 camera_right = glm::normalize(glm::cross(UP_DIRECTION, camera_direction));
     glm::vec3 camera_up = glm::normalize(glm::cross(camera_direction, camera_right));
