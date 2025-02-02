@@ -39,7 +39,7 @@ public:
         return glfwWindowShouldClose(handle_);
     }
 
-    std::vector<Action> collect_actions() const;
+    std::vector<Action> collect_actions();
     
 private:
     GLFWwindow* create_handle(char const* name, int width, int height) const;

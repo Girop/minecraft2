@@ -1,5 +1,6 @@
 #include <fmt/format.h>
 #include <unordered_map>
+#include <fmt/format.h>
 #include "window.hpp"
 
 static const std::unordered_map<int, Action> mapping {
@@ -33,7 +34,9 @@ GLFWwindow* Window::create_handle(char const* name, int width, int height) const
     return win;
 }
 
-std::vector<Action> Window::collect_actions() const {
+std::vector<Action> Window::collect_actions() {
     glfwPollEvents();
-    return std::move(actions_);
+    auto&& collected {std::move(actions_)};
+    actions_.clear();
+    return collected;
 }
