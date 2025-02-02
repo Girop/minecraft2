@@ -23,6 +23,10 @@ public:
         VkVertexInputBindingDescription binding,
         std::vector<VkVertexInputAttributeDescription> const& descs
     );
+    PipelineBuilder& set_depth_testing(VkPipelineDepthStencilStateCreateInfo depthstencil) {
+        depth_create_info_ = depthstencil;
+        return *this;
+    }
 
 private:
     VkPipelineInputAssemblyStateCreateInfo assembly_info() const;
@@ -42,6 +46,8 @@ private:
 
     VkPipelineColorBlendAttachmentState attachment_;
     VkRenderPass render_pass_;
+    
+    VkPipelineDepthStencilStateCreateInfo depth_create_info_;
 
     struct {
         VkPipelineVertexInputStateCreateInfo info;

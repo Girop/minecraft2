@@ -10,6 +10,11 @@
 #include "buffer.hpp"
 #include "uniforms.hpp"
 
+struct Image {
+    VkImage image;
+    VkImageView image_view;
+    VkDeviceMemory memory;
+};
 
 class Engine {
     struct FrameData {
@@ -38,13 +43,15 @@ private:
         return frame_data_[frame_number_ % FRAME_OVERLAP];
     }
 
-    std::vector<VkFramebuffer> create_frame_buffers(VkRenderPass renderpass) const;
+    std::vector<VkFramebuffer> create_frame_buffers(VkRenderPass renderpass, VkImageView depth_view) const;
 
     void prepare_framedata(uint32_t frame_index);
     void draw();
 
     UniformBuffer create_uniform_buf() const;
     Buffer create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags props) const;
+
+    Image create_detph_image(VkFormat depth_format) const;
 
     void copy_buffer(Buffer const& source, Buffer& dst) const;
     void copy_buffer(void const* source, Buffer& dst) const;

@@ -121,7 +121,7 @@ Pipeline PipelineBuilder::build(VkDevice device) const {
     pipeline_info.pRasterizationState = &rasterizer;
     pipeline_info.pMultisampleState = &multisampling;
     pipeline_info.pDynamicState = &dynamic_states;
-    // .pDepthStencilState = &depth_stencil_info,
+    pipeline_info.pDepthStencilState = &depth_create_info_;
     pipeline_info.pColorBlendState = &blend;
     pipeline_info.layout = pipeline_layout;
     pipeline_info.renderPass = render_pass_;
