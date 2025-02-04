@@ -48,6 +48,7 @@ sources = files(
   'src/pipeline.cpp',
   'src/window.cpp',
   'src/uniforms.cpp',
+  'src/device.cpp',
 )
 
 executable(

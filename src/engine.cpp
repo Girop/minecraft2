@@ -6,7 +6,6 @@
 #include "utility.hpp"
 #include <fmt/format.h>
 #include <ranges>
-#include <set>
 
 namespace init
 {
@@ -50,112 +49,7 @@ VkSurfaceKHR create_surface(VkInstance instance, GLFWwindow *window)
     return surface;
 }
 
-VkDeviceCreateInfo device_create_info(std::span<VkDeviceQueueCreateInfo const> create_infos);
 
-class DeviceFinder
-{
-  public:
-    static constexpr std::array DEVICE_EXTENSIONS {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-    };
-
-    DeviceFinder(VkInstance instance, VkSurfaceKHR surface) : instance_{instance}, surface_{surface}
-    {}
-
-    VkPhysicalDevice find() const
-    {
-        uint32_t device_count{};
-        vkEnumeratePhysicalDevices(instance_, &device_count, nullptr);
-        std::vector<VkPhysicalDevice> devices;
-        devices.resize(device_count);
-        vkEnumeratePhysicalDevices(instance_, &device_count, devices.data());
-        VkPhysicalDevice device;
-        for (auto phys_device : devices)
-        {
-            if (!suitable(phys_device))
-                continue;
-            device = phys_device;
-            break;
-        }
-        assert(device != VK_NULL_HANDLE);
-        return device;
-    }
-
-    VkDevice logical(VkPhysicalDevice phys_device) const
-    {
-        auto indicies = QueueFamilyIndicies::from(phys_device, surface_);
-        std::array families{indicies.graphics.value(), indicies.present.value()};
-        std::vector<VkDeviceQueueCreateInfo> create_infos;
-        create_infos.resize(families.size());
-
-        float queue_prio{1.0f};
-        for (size_t idx{}; idx < create_infos.size(); ++idx)
-        {
-            create_infos[idx] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, nullptr, 0, families[idx], 1, &queue_prio};
-        }
-
-        auto device_info = device_create_info(create_infos);
-        VkDevice device;
-        check_vk(vkCreateDevice(phys_device, &device_info, nullptr, &device));
-        return device;
-    }
-
-  private:
-    bool suitable(VkPhysicalDevice phys_device) const
-    {
-        return supports_extensions(phys_device) and is_external_gpu(phys_device) and
-               QueueFamilyIndicies::from(phys_device, surface_).complete() and
-               SwapChainSupportDetails::create(phys_device, surface_).supported();
-    }
-
-    bool is_external_gpu(VkPhysicalDevice device) const
-    {
-        VkPhysicalDeviceProperties device_props;
-        VkPhysicalDeviceFeatures dev_features;
-
-        vkGetPhysicalDeviceProperties(device, &device_props);
-        vkGetPhysicalDeviceFeatures(device, &dev_features);
-
-        return (device_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU or
-                device_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) and
-               dev_features.geometryShader;
-    }
-
-    bool supports_extensions(VkPhysicalDevice device) const
-    {
-        uint32_t extension_count{};
-        vkEnumerateDeviceExtensionProperties(device, nullptr, &extension_count, nullptr);
-
-        std::vector<VkExtensionProperties> extensions(extension_count);
-        vkEnumerateDeviceExtensionProperties(device, nullptr, &extension_count, extensions.data());
-
-        std::set<std::string> required_extensions(DEVICE_EXTENSIONS.begin(), DEVICE_EXTENSIONS.end());
-        for (auto const& extension : extensions)
-        {
-            required_extensions.erase(extension.extensionName);
-        }
-        return required_extensions.empty();
-    }
-
-    VkInstance instance_;
-    VkSurfaceKHR surface_;
-};
-
-VkDeviceCreateInfo device_create_info(std::span<VkDeviceQueueCreateInfo const> create_infos)
-{
-    VkPhysicalDeviceFeatures dev_features{};
-    dev_features.fillModeNonSolid = VK_TRUE;
-
-    VkDeviceCreateInfo device_create_info{};
-    device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_create_info.queueCreateInfoCount = static_cast<uint32_t>(create_infos.size());
-    device_create_info.pQueueCreateInfos = create_infos.data();
-    device_create_info.enabledExtensionCount = DeviceFinder::DEVICE_EXTENSIONS.size();
-    device_create_info.ppEnabledExtensionNames = DeviceFinder::DEVICE_EXTENSIONS.data();
-    device_create_info.pEnabledFeatures = &dev_features;
-
-    return device_create_info;
-}
 
 VkExtent2D extent(VkSurfaceCapabilitiesKHR caps, glm::uvec2 const &winsize)
 {
@@ -195,15 +89,15 @@ VkSemaphore create_semaphore(VkDevice device)
     return sem;
 }
 
-VkCommandPool create_command_pool(VkPhysicalDevice phy_device, VkDevice device, VkSurfaceKHR surface)
+VkCommandPool create_command_pool(Device const& device, VkSurfaceKHR surface)
 {
-    auto queue_families = QueueFamilyIndicies::from(phy_device, surface);
+    auto queue_families = QueueFamilyIndicies::from(device.physical, surface);
     VkCommandPoolCreateInfo info{.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
                                  .pNext = nullptr,
                                  .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
                                  .queueFamilyIndex = queue_families.graphics.value()};
     VkCommandPool comand_pool;
-    check_vk(vkCreateCommandPool(device, &info, nullptr, &comand_pool));
+    check_vk(vkCreateCommandPool(device.logical, &info, nullptr, &comand_pool));
     return comand_pool;
 }
 
@@ -444,6 +338,34 @@ VkImageViewCreateInfo image_view_create_info(VkFormat format, VkImage image, VkI
     return info;
 }
 
+std::vector<VkFramebuffer> create_frame_buffers(
+    VkDevice device,
+    Swapchain const& swapchain,
+    VkExtent2D extent,
+    VkRenderPass renderpass,
+    VkImageView depth_view
+)
+{
+    size_t const image_count{swapchain.views.size()};
+    std::vector<VkFramebuffer> frame_buffers;
+    frame_buffers.resize(image_count);
+
+    for (size_t idx{}; idx < image_count; ++idx)
+    {
+        std::array attachement{swapchain.views[idx], depth_view};
+        VkFramebufferCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        info.renderPass = renderpass;
+        info.attachmentCount = attachement.size();
+        info.pAttachments = attachement.data();
+        info.width = extent.width;
+        info.height = extent.height;
+        info.layers = 1;
+        check_vk(vkCreateFramebuffer(device, &info, nullptr, &frame_buffers[idx]));
+    }
+    return frame_buffers;
+}
+
 } // namespace init
 
 constexpr glm::vec3 red{1.f, 0.f, 0.f};
@@ -491,119 +413,94 @@ uint32_t find_memory_type_idx(VkPhysicalDevice device, uint32_t type_filter, VkM
     return res;
 }
 
+constexpr VkFormat depth_format {VK_FORMAT_D32_SFLOAT};
+
 Engine::Engine()
-    : window_{NAME}, instance_{init::create_instance()}, surface_{init::create_surface(instance_, window_.handle())}
-{
-    init::DeviceFinder device_finder{instance_, surface_};
-    phys_device_ = device_finder.find();
-    device_ = device_finder.logical(phys_device_);
-    auto swapchain_details = SwapChainSupportDetails::create(phys_device_, surface_);
+    : window_{NAME},
+    instance_{init::create_instance()},
+    surface_{init::create_surface(instance_, window_.handle())},
+    device_{Device::create(instance_, surface_)},
+    swapchain_{Swapchain::create(device_, surface_, window_)},
+    extent_{extent(device_, window_, surface_)},
+    viewport_{extent_},
+    queues_{[&]() {
+        auto queue_families = QueueFamilyIndicies::from(device_.physical, surface_);
+        const auto graphics_queue = queue_families.graphics_queue(device_.logical);
+        const auto present_queue = queue_families.present_queue(device_.logical);
+        return Queues{graphics_queue, present_queue};
+    }()},
+    shaders_{device_.logical},
+    descriptor_set_layout_{init::create_descriptor_set_layout(device_.logical)},
+    desc_pool_{init::create_descriptor_pool(device_.logical, FRAME_OVERLAP)},
+    render_pass_{init::create_render_pass(device_.logical, swapchain_.color_format, depth_format)},
+    pipeline_{[&]() {
+        auto const binding_desc = binding_description();
+        auto const attribute_desc = attribute_descritptions();
+        auto const depth = init::depth_stencil_create_info(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
 
-    swapchain_ = Swapchain::create(swapchain_details, phys_device_, device_, surface_, window_);
-    
-    // TOOD: prevent reconstructions, make querable object on top of the VkDevice
-    auto queue_families = QueueFamilyIndicies::from(phys_device_, surface_);
+        PipelineBuilder builder{};
+        return builder
+            .set_viewport(viewport_)
+            .set_fragment(shaders_.fragment().module)
+            .set_vertex(shaders_.vertex().module)
+            .set_render_pass(render_pass_)
+            .set_descriptors(binding_desc, std::vector(attribute_desc.begin(), attribute_desc.end()))
+            .set_depth_testing(depth)
+            .build(device_.logical);
+    }()},
+    frame_buffers_{[&]() {
+        auto const depth_image = create_detph_image(depth_format);
+        return init::create_frame_buffers(
+            device_.logical, swapchain_, extent_, render_pass_, depth_image.image_view);
+    }()},
+    frame_data_{[&]() {
+        std::array<FrameData, FRAME_OVERLAP> data;
+        auto const desc_sets = init::allocate_descriptor_sets<FRAME_OVERLAP>(device_.logical, descriptor_set_layout_, desc_pool_);
 
-    graphics_queue_ = queue_families.graphics_queue(device_);
-    present_queue_ = queue_families.present_queue(device_);
+        uint32_t idx{};
+        for (auto &frame : frame_data_)
+        {
+            auto cmd_pool_ = init::create_command_pool(device_, surface_);
+            frame.cmd_pool = cmd_pool_;
+            frame.cmd_buffer = init::allocate_command_buffer(device_.logical, cmd_pool_);
+            frame.render_finished = init::create_semaphore(device_.logical);
+            frame.image_ready = init::create_semaphore(device_.logical);
+            frame.frame_ready = init::create_signaled_fence(device_.logical);
+            frame.uniform_buffer = create_uniform_buf();
 
-    vertex_shader_ = get_shader(device_, "build/shaders/triangle.vert.spv");
-    fragment_shader_ = get_shader(device_, "build/shaders/triangle.frag.spv");
+            frame.descriptor_set = desc_sets.at(idx);
+            init::fill_descriptor_set(device_.logical, frame.descriptor_set, frame.uniform_buffer);
+            idx++;
+        }
 
-    descriptor_set_layout_ = init::create_descriptor_set_layout(device_);
-    desc_pool_ = init::create_descriptor_pool(device_, FRAME_OVERLAP);
-
-    frame_data_ = {};
-
-    auto desc_sets = init::allocate_descriptor_sets<FRAME_OVERLAP>(device_, descriptor_set_layout_, desc_pool_);
-
-    uint32_t idx{};
-    for (auto &frame : frame_data_)
-    {
-        auto cmd_pool_ = init::create_command_pool(phys_device_, device_, surface_);
-        frame.cmd_pool = cmd_pool_;
-        frame.cmd_buffer = init::allocate_command_buffer(device_, cmd_pool_);
-        frame.render_finished = init::create_semaphore(device_);
-        frame.image_ready = init::create_semaphore(device_);
-        frame.frame_ready = init::create_signaled_fence(device_);
-        frame.uniform_buffer = create_uniform_buf();
-
-        frame.descriptor_set = desc_sets.at(idx);
-        init::fill_descriptor_set(device_, frame.descriptor_set, frame.uniform_buffer);
-        idx++;
-    }
-
-    extent_ = init::extent(swapchain_details.capabilities, window_.size());
-    viewport_ = Viewport(extent_);
-
-    VkFormat depth_format {VK_FORMAT_D32_SFLOAT};
-    auto const depth_image = create_detph_image(depth_format);
-
-    render_pass_ = init::create_render_pass(device_, swapchain_.color_format, depth_format);
-
-    auto const binding_desc = binding_description();
-    auto const attribute_desc = attribute_descritptions();
-    auto const depth = init::depth_stencil_create_info(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
-
-    pipeline_ = PipelineBuilder{}
-                    .set_viewport(viewport_)
-                    .set_fragment(fragment_shader_)
-                    .set_vertex(vertex_shader_)
-                    .set_render_pass(render_pass_)
-                    .set_descriptors(binding_desc, std::vector(attribute_desc.begin(), attribute_desc.end()))
-                    .set_depth_testing(depth)
-                    .build(device_);
-
-    frame_buffers_ = create_frame_buffers(render_pass_, depth_image.image_view);
-    vertex_buffer_ = create_vertex_buf(verticies_back);
-    index_buffer_ = create_index_buf(indices);
-
-}
+        return data;
+    }()},
+    index_buffer_{create_index_buf(indices)},
+    vertex_buffer_{create_vertex_buf(verticies_back)}
+{}
 
 Image Engine::create_detph_image(VkFormat depth_format) const {
     auto const depth_image_info = init::image_create_info(depth_format, extent_, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
     VkImage depth_image;
-    check_vk(vkCreateImage(device_, &depth_image_info, nullptr, &depth_image));
+    check_vk(vkCreateImage(device_.logical, &depth_image_info, nullptr, &depth_image));
 
     VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device_, depth_image, &mem_reqs);
+    vkGetImageMemoryRequirements(device_.logical, depth_image, &mem_reqs);
 
     VkMemoryAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
     alloc_info.allocationSize = mem_reqs.size;
-    alloc_info.memoryTypeIndex = find_memory_type_idx(phys_device_, mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    alloc_info.memoryTypeIndex = find_memory_type_idx(device_.physical, mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     VkDeviceMemory mem;
-    check_vk(vkAllocateMemory(device_, &alloc_info, nullptr, &mem));
-    check_vk(vkBindImageMemory(device_, depth_image, mem, 0));
+    check_vk(vkAllocateMemory(device_.logical, &alloc_info, nullptr, &mem));
+    check_vk(vkBindImageMemory(device_.logical, depth_image, mem, 0));
 
     auto const depth_img_view_info = init::image_view_create_info(depth_format, depth_image, VK_IMAGE_ASPECT_DEPTH_BIT);
     VkImageView depth_image_view;
-    check_vk(vkCreateImageView(device_, &depth_img_view_info, nullptr, &depth_image_view));
+    check_vk(vkCreateImageView(device_.logical, &depth_img_view_info, nullptr, &depth_image_view));
 
     return {depth_image, depth_image_view, mem};
-}
-
-std::vector<VkFramebuffer> Engine::create_frame_buffers(VkRenderPass renderpass, VkImageView depth_view) const
-{
-    size_t const image_count{swapchain_.views.size()};
-    std::vector<VkFramebuffer> frame_buffers;
-    frame_buffers.resize(image_count);
-
-    for (size_t idx{}; idx < image_count; ++idx)
-    {
-        std::array attachement{swapchain_.views[idx], depth_view};
-        VkFramebufferCreateInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        info.renderPass = renderpass;
-        info.attachmentCount = attachement.size();
-        info.pAttachments = attachement.data();
-        info.width = extent_.width;
-        info.height = extent_.height;
-        info.layers = 1;
-        check_vk(vkCreateFramebuffer(device_, &info, nullptr, &frame_buffers[idx]));
-    }
-    return frame_buffers;
 }
 
 Buffer Engine::create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags props) const
@@ -615,19 +512,19 @@ Buffer Engine::create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemo
     create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     Buffer buffer;
-    check_vk(vkCreateBuffer(device_, &create_info, nullptr, &buffer.buffer));
+    check_vk(vkCreateBuffer(device_.logical, &create_info, nullptr, &buffer.buffer));
 
     VkMemoryRequirements mem_reqs;
-    vkGetBufferMemoryRequirements(device_, buffer.buffer, &mem_reqs);
+    vkGetBufferMemoryRequirements(device_.logical, buffer.buffer, &mem_reqs);
 
     VkMemoryAllocateInfo alloc_info{.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
                                     .pNext = nullptr,
                                     .allocationSize = mem_reqs.size,
                                     .memoryTypeIndex =
-                                        find_memory_type_idx(phys_device_, mem_reqs.memoryTypeBits, props)};
+                                        find_memory_type_idx(device_.physical, mem_reqs.memoryTypeBits, props)};
 
-    check_vk(vkAllocateMemory(device_, &alloc_info, nullptr, &buffer.memory));
-    vkBindBufferMemory(device_, buffer.buffer, buffer.memory, 0);
+    check_vk(vkAllocateMemory(device_.logical, &alloc_info, nullptr, &buffer.memory));
+    vkBindBufferMemory(device_.logical, buffer.buffer, buffer.memory, 0);
     buffer.size = size;
     return buffer;
 }
@@ -638,29 +535,29 @@ UniformBuffer Engine::create_uniform_buf() const
     UniformBuffer ub;
     ub.buffer = create_buffer(ubo_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    vkMapMemory(device_, ub.buffer.memory, 0, ubo_size, 0, &ub.mapped);
+    vkMapMemory(device_.logical, ub.buffer.memory, 0, ubo_size, 0, &ub.mapped);
     return ub;
 }
 
 void Engine::destroy_buffer(Buffer &buffer) const
 {
-    vkDestroyBuffer(device_, buffer.buffer, nullptr);
-    vkFreeMemory(device_, buffer.memory, nullptr);
+    vkDestroyBuffer(device_.logical, buffer.buffer, nullptr);
+    vkFreeMemory(device_.logical, buffer.memory, nullptr);
     buffer.size = 0;
 }
 
 void Engine::copy_buffer(void const *source, Buffer &dst) const
 {
     void *data;
-    vkMapMemory(device_, dst.memory, 0, dst.size, 0, &data);
+    vkMapMemory(device_.logical, dst.memory, 0, dst.size, 0, &data);
     memcpy(data, source, dst.size);
-    vkUnmapMemory(device_, dst.memory);
+    vkUnmapMemory(device_.logical, dst.memory);
 }
 
 void Engine::copy_buffer(Buffer const &source, Buffer &dst) const
 {
     auto const &frame = current_frame();
-    auto cmd_buffer = init::allocate_command_buffer(device_, frame.cmd_pool);
+    auto cmd_buffer = init::allocate_command_buffer(device_.logical, frame.cmd_pool);
 
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -681,10 +578,10 @@ void Engine::copy_buffer(Buffer const &source, Buffer &dst) const
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &cmd_buffer;
 
-    vkQueueSubmit(graphics_queue_, 1, &submit_info, VK_NULL_HANDLE);
-    vkDeviceWaitIdle(device_); // TODO: futures?
+    vkQueueSubmit(queues_.graphics, 1, &submit_info, VK_NULL_HANDLE);
+    vkDeviceWaitIdle(device_.logical); // TODO: futures?
 
-    vkFreeCommandBuffers(device_, frame.cmd_pool, 1, &cmd_buffer);
+    vkFreeCommandBuffers(device_.logical, frame.cmd_pool, 1, &cmd_buffer);
 }
 
 void Engine::record(VkCommandBuffer cmd_buff, size_t count, VkDescriptorSet desc_set) const
@@ -728,7 +625,7 @@ void Engine::run()
 }
 
 constexpr glm::vec3 target{0.f, 0.f, 0.f};
-constexpr float camera_speed{0.04f};
+constexpr float camera_speed{0.04};
 
 void Engine::update_camera(std::span<Action const> actions)
 {
@@ -761,13 +658,13 @@ void Engine::update_camera(std::span<Action const> actions)
 void Engine::draw()
 {
     auto &frame = current_frame();
-    check_vk(vkWaitForFences(device_, 1, &frame.frame_ready, VK_TRUE, 1000000000));
-    vkResetFences(device_, 1, &frame.frame_ready);
+    check_vk(vkWaitForFences(device_.logical, 1, &frame.frame_ready, VK_TRUE, 1000000000));
+    vkResetFences(device_.logical, 1, &frame.frame_ready);
 
     uint32_t image_index{};
     VkResult acquired_image{
         vkAcquireNextImageKHR(
-            device_,
+            device_.logical,
             swapchain_.swapchain,
             UINT64_MAX,
             frame.image_ready,
@@ -777,7 +674,7 @@ void Engine::draw()
     if (acquired_image == VK_ERROR_OUT_OF_DATE_KHR or acquired_image == VK_SUBOPTIMAL_KHR)
     {
         // TODO: Might not resize, handle it in the GLFW window too
-        swapchain_.recreate(window_, phys_device_, device_, surface_);
+        swapchain_.recreate(device_, surface_, window_);
         return;
     }
 
@@ -802,7 +699,7 @@ void Engine::submit(VkCommandBuffer cmd_buf, uint32_t image_index) const
                              .pCommandBuffers = &cmd_buf,
                              .signalSemaphoreCount = 1,
                              .pSignalSemaphores = &frame.render_finished};
-    check_vk(vkQueueSubmit(graphics_queue_, 1, &submit_info, frame.frame_ready));
+    check_vk(vkQueueSubmit(queues_.graphics, 1, &submit_info, frame.frame_ready));
     VkPresentInfoKHR present_info{.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                                   .pNext = nullptr,
                                   .waitSemaphoreCount = 1,
@@ -811,7 +708,7 @@ void Engine::submit(VkCommandBuffer cmd_buf, uint32_t image_index) const
                                   .pSwapchains = &swapchain_.swapchain,
                                   .pImageIndices = &image_index,
                                   .pResults = nullptr};
-    check_vk(vkQueuePresentKHR(present_queue_, &present_info));
+    check_vk(vkQueuePresentKHR(queues_.present, &present_info));
 }
 
 Buffer Engine::create_vertex_buf(std::span<Vertex const> verticies) const
@@ -858,7 +755,7 @@ Buffer Engine::create_index_buf(std::span<uint16_t const> indicies) const
 
 void Engine::shutdown()
 {
-    vkDeviceWaitIdle(device_);
+    vkDeviceWaitIdle(device_.logical);
     for (auto const& deleter : deletion_queue_ | std::views::reverse)
     {
         deleter();

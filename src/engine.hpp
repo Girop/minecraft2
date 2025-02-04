@@ -5,6 +5,8 @@
 #include "descriptors.hpp"
 #include "viewport.hpp"
 #include "window.hpp"
+#include "device.hpp"
+#include "shader.hpp"
 #include "swapchain.hpp"
 #include "pipeline.hpp"
 #include "buffer.hpp"
@@ -27,6 +29,11 @@ class Engine {
         UniformBuffer uniform_buffer;
         VkDescriptorSet descriptor_set; // TODO: Merge into uniforms
     };
+    
+    struct Queues {
+        VkQueue graphics;
+        VkQueue present;
+    };
 
 public:
     static constexpr auto NAME {"Mc2"};
@@ -42,8 +49,6 @@ private:
     FrameData const& current_frame() const {
         return frame_data_[frame_number_ % FRAME_OVERLAP];
     }
-
-    std::vector<VkFramebuffer> create_frame_buffers(VkRenderPass renderpass, VkImageView depth_view) const;
 
     void prepare_framedata(uint32_t frame_index);
     void draw();
@@ -73,32 +78,24 @@ private:
     Window window_;
     VkInstance instance_;
     VkSurfaceKHR surface_;
-    VkPhysicalDevice phys_device_;
-    VkDevice device_;
+    Device device_;
+    Swapchain swapchain_;
     VkExtent2D extent_;
     Viewport viewport_;
-    Swapchain swapchain_;
-
-    VkQueue graphics_queue_;
-    VkQueue present_queue_;
-
-    VkShaderModule vertex_shader_;
-    VkShaderModule fragment_shader_;
-
+    Queues queues_;
+    ShaderManager shaders_;
+    VkDescriptorSetLayout descriptor_set_layout_;
+    VkDescriptorPool desc_pool_;
     VkRenderPass render_pass_;
     Pipeline pipeline_;
-
     std::vector<VkFramebuffer> frame_buffers_;
+    std::array<FrameData, FRAME_OVERLAP> frame_data_;
 
     Buffer index_buffer_;
     Buffer vertex_buffer_;
- 
-    VkDescriptorSetLayout descriptor_set_layout_;
-    VkDescriptorPool desc_pool_;
 
     glm::vec3 camera_pos_{0, 0, 2.f};
     uint32_t frame_number_{0};
-    std::array<FrameData, FRAME_OVERLAP> frame_data_;
     std::vector<std::function<void()>> deletion_queue_;
 };
 

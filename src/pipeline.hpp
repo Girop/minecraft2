@@ -12,6 +12,7 @@ class PipelineBuilder {
 public:
     PipelineBuilder();
     Pipeline build(VkDevice device) const;
+
     PipelineBuilder& set_vertex(VkShaderModule vertex);
     PipelineBuilder& set_fragment(VkShaderModule fragment);
     PipelineBuilder& set_viewport(Viewport const& viewport);
