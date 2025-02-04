@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <span>
 #include "viewport.hpp"
 
 struct Pipeline {
@@ -8,6 +9,7 @@ struct Pipeline {
 };
 
 
+// TODO figure out builder on temporaries
 class PipelineBuilder {
 public:
     PipelineBuilder();
@@ -22,7 +24,7 @@ public:
     }
     PipelineBuilder& set_descriptors(
         VkVertexInputBindingDescription binding,
-        std::vector<VkVertexInputAttributeDescription> const& descs
+        std::span<VkVertexInputAttributeDescription const> descs
     );
     PipelineBuilder& set_depth_testing(VkPipelineDepthStencilStateCreateInfo depthstencil) {
         depth_create_info_ = depthstencil;

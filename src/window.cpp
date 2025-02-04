@@ -1,6 +1,5 @@
-#include <fmt/format.h>
 #include <unordered_map>
-#include <fmt/format.h>
+#include "logging.hpp"
 #include "window.hpp"
 
 // Nearly all directions are inverted, it is hack until I understand coordinate system
@@ -18,8 +17,7 @@ GLFWwindow* Window::create_handle(char const* name, int width, int height) const
 {
     if (not glfwInit()) 
     {
-        fmt::println("Failed to create window");
-        std::abort();
+        fail("Failed to create window");
     }
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);

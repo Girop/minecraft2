@@ -21,8 +21,7 @@ std::vector<std::byte> ShaderManager::load(std::filesystem::path const& path) co
     std::ifstream fstream {path, std::ios::ate | std::ios::binary};
 
     if (!fstream.is_open()) {
-        fmt::println("Failed to open: {}", path.string());
-        abort();
+        fail(fmt::format("Failed to open: {}", path.string()));
     }
 
     std::vector<std::byte> bytes(fstream.tellg());

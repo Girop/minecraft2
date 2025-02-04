@@ -28,6 +28,7 @@ class Engine {
         VkFramebuffer framebuffer;
         UniformBuffer uniform_buffer;
         VkDescriptorSet descriptor_set; // TODO: Merge into uniforms
+        float time_delta;
     };
     
     struct Queues {
@@ -56,7 +57,7 @@ private:
     UniformBuffer create_uniform_buf() const;
     Buffer create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags props) const;
 
-    Image create_detph_image(VkFormat depth_format) const;
+    Image create_depth_image(VkFormat depth_format) const;
 
     void copy_buffer(Buffer const& source, Buffer& dst) const;
     void copy_buffer(void const* source, Buffer& dst) const;

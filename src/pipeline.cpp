@@ -83,10 +83,10 @@ PipelineBuilder::PipelineBuilder() {
 
 PipelineBuilder& PipelineBuilder::set_descriptors(
     VkVertexInputBindingDescription binding,
-    std::vector<VkVertexInputAttributeDescription> const& descs
+    std::span<VkVertexInputAttributeDescription const> descs
 ) {
     inpute_vertex_.binding_desriptions = binding;
-    inpute_vertex_.attribute_descriptions = descs;
+    inpute_vertex_.attribute_descriptions = std::vector(descs.begin(), descs.end());
     auto const& attribute_desc = inpute_vertex_.attribute_descriptions;
 
     inpute_vertex_.info =  {

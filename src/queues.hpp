@@ -34,13 +34,13 @@ std::optional<uint32_t> present;
         return indicies;
     }
 
-    VkQueue graphics_queue(VkDevice device) {
+    VkQueue graphics_queue(VkDevice device) const {
         VkQueue queue;
         vkGetDeviceQueue(device, graphics.value(), 0, &queue);
         return queue;
     }
 
-    VkQueue present_queue(VkDevice device) {
+    VkQueue present_queue(VkDevice device) const {
         VkQueue queue;
         vkGetDeviceQueue(device, present.value(), 0, &queue);
         return queue;

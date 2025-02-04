@@ -27,11 +27,10 @@ struct Swapchain {
     void recreate(Device const& device, VkSurfaceKHR surface, Window const& window);
     void destroy(VkDevice device);
     
+    SwapChainSupportDetails details;
     VkSwapchainKHR swapchain;
     VkFormat color_format;
     std::vector<VkImage> images;
     std::vector<VkImageView> views;
 };
-
-VkExtent2D extent(Device const& device, Window const& window, VkSurfaceKHR surface);
 

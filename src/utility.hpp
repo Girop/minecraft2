@@ -1,19 +1,16 @@
 #pragma once
 #include <vulkan/vulkan.h>
 #include <array>
-#include <source_location>
-#include <fmt/format.h>
 #include <vulkan/vk_enum_string_helper.h>
 #include <vector>
-
+#include <string>
+#include "logging.hpp"
 
 inline void check_vk(VkResult result, std::source_location loc = std::source_location::current()) 
 {
     if (result == VK_SUCCESS) return;
-    const auto* msg = string_VkResult(result);
-    auto location = fmt::format("[{} - {} - {}]", loc.file_name(), loc.function_name(), loc.line());
-    fmt::println("Vulkan operation failed: {}\n{}", msg, location);
-    abort();
+    const auto msg = fmt::format("Vulkan operation failed: {}\n", string_VkResult(result));
+    fail(msg, loc);
 }
 
 inline constexpr std::array activated_validation_layers {
@@ -45,7 +42,7 @@ inline void verify_validation_layers()
     }
 
     if (not all_found) {
-        fmt::println("Missing validation layers");
-        abort();
+        fail("Missing validation layers");
     }
 }
+

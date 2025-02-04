@@ -166,6 +166,7 @@ Swapchain Swapchain::create(Device const& device, VkSurfaceKHR surface, Window c
     auto views = create_views(device.logical, images, format.format);
 
     return {
+        details,
         swapchain, 
         format.format,
         images,
@@ -198,21 +199,3 @@ void Swapchain::destroy(VkDevice device)
     vkDestroySwapchainKHR(device, swapchain, nullptr);
 }
 
-VkExtent2D extent(Device const& device, Window const& window, VkSurfaceKHR surface)
-{
-    auto const details = SwapChainSupportDetails::create(device.physical, surface);
-    auto const winsize = window.size();
-    auto const &current_extent = details.capabilities.currentExtent;
-
-    if (current_extent.width != std::numeric_limits<uint32_t>::max())
-    {
-        return current_extent;
-    }
-
-    auto const &min_extent = details.capabilities.minImageExtent;
-    auto const &max_extent = details.capabilities.maxImageExtent;
-    return {
-        .width = std::clamp(winsize.x, min_extent.width, max_extent.width),
-        .height = std::clamp(winsize.y, min_extent.width, max_extent.width),
-    };
-}

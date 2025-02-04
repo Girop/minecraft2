@@ -44,7 +44,7 @@ class DeviceFinder
         std::vector<VkPhysicalDevice> devices;
         devices.resize(device_count);
         vkEnumeratePhysicalDevices(instance_, &device_count, devices.data());
-        VkPhysicalDevice device;
+        VkPhysicalDevice device{VK_NULL_HANDLE};
         for (auto phys_device : devices)
         {
             if (!suitable(phys_device))

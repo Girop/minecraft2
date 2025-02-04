@@ -49,24 +49,6 @@ VkSurfaceKHR create_surface(VkInstance instance, GLFWwindow *window)
     return surface;
 }
 
-
-
-VkExtent2D extent(VkSurfaceCapabilitiesKHR caps, glm::uvec2 const &winsize)
-{
-    auto const &current_extent = caps.currentExtent;
-
-    if (current_extent.width != std::numeric_limits<uint32_t>::max())
-    {
-        return current_extent;
-    }
-    auto const &min_extent = caps.minImageExtent;
-    auto const &max_extent = caps.maxImageExtent;
-    return {
-        .width = std::clamp(winsize.x, min_extent.width, max_extent.width),
-        .height = std::clamp(winsize.y, min_extent.width, max_extent.width),
-    };
-}
-
 VkFence create_signaled_fence(VkDevice device)
 {
     VkFenceCreateInfo info{
@@ -366,6 +348,21 @@ std::vector<VkFramebuffer> create_frame_buffers(
     return frame_buffers;
 }
 
+VkExtent2D create_extent(VkSurfaceCapabilitiesKHR const& capabilities, glm::uvec2 const& winsize)
+{
+    if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+    {
+        return capabilities.currentExtent;
+    }
+
+    auto const &min_extent = capabilities.minImageExtent;
+    auto const &max_extent = capabilities.maxImageExtent;
+    return {
+        .width = std::clamp(winsize.x, min_extent.width, max_extent.width),
+        .height = std::clamp(winsize.y, min_extent.width, max_extent.width),
+    };
+}
+
 } // namespace init
 
 constexpr glm::vec3 red{1.f, 0.f, 0.f};
@@ -415,18 +412,20 @@ uint32_t find_memory_type_idx(VkPhysicalDevice device, uint32_t type_filter, VkM
 
 constexpr VkFormat depth_format {VK_FORMAT_D32_SFLOAT};
 
+
+
 Engine::Engine()
     : window_{NAME},
     instance_{init::create_instance()},
     surface_{init::create_surface(instance_, window_.handle())},
     device_{Device::create(instance_, surface_)},
     swapchain_{Swapchain::create(device_, surface_, window_)},
-    extent_{extent(device_, window_, surface_)},
+    extent_{init::create_extent(swapchain_.details.capabilities, window_.size())},
     viewport_{extent_},
     queues_{[&]() {
-        auto queue_families = QueueFamilyIndicies::from(device_.physical, surface_);
-        const auto graphics_queue = queue_families.graphics_queue(device_.logical);
-        const auto present_queue = queue_families.present_queue(device_.logical);
+        auto const queue_families = QueueFamilyIndicies::from(device_.physical, surface_);
+        auto const graphics_queue = queue_families.graphics_queue(device_.logical);
+        auto const present_queue = queue_families.present_queue(device_.logical);
         return Queues{graphics_queue, present_queue};
     }()},
     shaders_{device_.logical},
@@ -444,15 +443,12 @@ Engine::Engine()
             .set_fragment(shaders_.fragment().module)
             .set_vertex(shaders_.vertex().module)
             .set_render_pass(render_pass_)
-            .set_descriptors(binding_desc, std::vector(attribute_desc.begin(), attribute_desc.end()))
+            .set_descriptors(binding_desc, attribute_desc)
             .set_depth_testing(depth)
             .build(device_.logical);
     }()},
-    frame_buffers_{[&]() {
-        auto const depth_image = create_detph_image(depth_format);
-        return init::create_frame_buffers(
-            device_.logical, swapchain_, extent_, render_pass_, depth_image.image_view);
-    }()},
+    frame_buffers_{init::create_frame_buffers(
+        device_.logical, swapchain_, extent_, render_pass_, create_depth_image(depth_format).image_view)},
     frame_data_{[&]() {
         std::array<FrameData, FRAME_OVERLAP> data;
         auto const desc_sets = init::allocate_descriptor_sets<FRAME_OVERLAP>(device_.logical, descriptor_set_layout_, desc_pool_);
@@ -479,7 +475,7 @@ Engine::Engine()
     vertex_buffer_{create_vertex_buf(verticies_back)}
 {}
 
-Image Engine::create_detph_image(VkFormat depth_format) const {
+Image Engine::create_depth_image(VkFormat depth_format) const {
     auto const depth_image_info = init::image_create_info(depth_format, extent_, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
     VkImage depth_image;
     check_vk(vkCreateImage(device_.logical, &depth_image_info, nullptr, &depth_image));
@@ -610,6 +606,7 @@ void Engine::prepare_framedata(uint32_t framebuffer_idx)
 {
     auto& frame = current_frame();
     frame.framebuffer = frame_buffers_.at(framebuffer_idx);
+    frame.time_delta = glfwGetTime();
     vkResetCommandBuffer(frame.cmd_buffer, 0);
 }
 
@@ -625,31 +622,32 @@ void Engine::run()
 }
 
 constexpr glm::vec3 target{0.f, 0.f, 0.f};
-constexpr float camera_speed{0.04};
+constexpr float camera_speed{0.1};
 
 void Engine::update_camera(std::span<Action const> actions)
 {
+    float delta {camera_speed * current_frame().time_delta};
     for (auto const action : actions)
     {
         switch (action)
         {
         case Action::Forward:
-            camera_pos_.z += camera_speed;
+            camera_pos_.z += delta;
             break;
         case Action::Backward:
-            camera_pos_.z -= camera_speed;
+            camera_pos_.z -= delta;
             break;
         case Action::Left:
-            camera_pos_.x -= camera_speed;
+            camera_pos_.x -= delta;
             break;
         case Action::Right:
-            camera_pos_.x += camera_speed;
+            camera_pos_.x += delta;
             break;
         case Action::Down:
-            camera_pos_.y -= camera_speed;
+            camera_pos_.y -= delta;
             break;
         case Action::Up:
-            camera_pos_.y += camera_speed;
+            camera_pos_.y += delta;
             break;
         }
     }
