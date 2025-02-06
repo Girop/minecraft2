@@ -275,7 +275,7 @@ void fill_descriptor_set(VkDevice device, VkDescriptorSet set, UniformBuffer con
 
 VkPipelineDepthStencilStateCreateInfo depth_stencil_create_info(bool bDepthTest, bool bDepthWrite, VkCompareOp compareOp)
 {
-    VkPipelineDepthStencilStateCreateInfo info = {};
+    VkPipelineDepthStencilStateCreateInfo info {};
     info.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     info.pNext = nullptr;
 
@@ -370,7 +370,7 @@ constexpr glm::vec3 blue{0.f, 0.f, 1.f};
 constexpr glm::vec3 green{0.f, 1.f, 0.f};
 
 constexpr float p {0.5f};
-const std::vector<Vertex> verticies_back{
+const std::vector<Vertex> verticies_back {
     {{-p, -p, -p}, red},  // 0
     {{-p, p, -p}, green}, // 1
     {{p, p, -p}, blue},   // 2
@@ -622,20 +622,20 @@ void Engine::run()
 }
 
 constexpr glm::vec3 target{0.f, 0.f, 0.f};
-constexpr float camera_speed{0.1};
+constexpr float camera_speed{0.002};
 
 void Engine::update_camera(std::span<Action const> actions)
 {
-    float delta {camera_speed * current_frame().time_delta};
+    float delta {camera_speed /* * current_frame().time_delta */};
     for (auto const action : actions)
     {
         switch (action)
         {
         case Action::Forward:
-            camera_pos_.z += delta;
+            camera_pos_.z -= delta;
             break;
         case Action::Backward:
-            camera_pos_.z -= delta;
+            camera_pos_.z += delta;
             break;
         case Action::Left:
             camera_pos_.x -= delta;
@@ -644,10 +644,12 @@ void Engine::update_camera(std::span<Action const> actions)
             camera_pos_.x += delta;
             break;
         case Action::Down:
-            camera_pos_.y -= delta;
+            camera_pos_.y += delta;
             break;
         case Action::Up:
-            camera_pos_.y += delta;
+            camera_pos_.y -= delta;
+            break;
+        default:
             break;
         }
     }

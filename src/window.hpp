@@ -2,6 +2,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <vector>
+#include <bitset>
 
 enum class Action {
     Left,
@@ -10,6 +11,7 @@ enum class Action {
     Backward,
     Up,
     Down,
+    MAX_COUNT
 };
 
 class Window {
@@ -39,11 +41,11 @@ public:
         return glfwWindowShouldClose(handle_);
     }
 
-    std::vector<Action> collect_actions();
+    std::vector<Action> collect_actions() const;
     
 private:
     GLFWwindow* create_handle(char const* name, int width, int height) const;
 
-    std::vector<Action> actions_;
+    std::bitset<static_cast<size_t>(Action::MAX_COUNT)> actions_;
     GLFWwindow* handle_;
 };

@@ -6,7 +6,6 @@
 #include "swapchain.hpp"
 #include "device.hpp"
 
-
 constexpr std::array DEVICE_EXTENSIONS {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 };
@@ -14,16 +13,15 @@ constexpr std::array DEVICE_EXTENSIONS {
 
 VkDeviceCreateInfo device_create_info(std::span<VkDeviceQueueCreateInfo const> create_infos)
 {
-    VkPhysicalDeviceFeatures dev_features{};
-    dev_features.fillModeNonSolid = VK_TRUE;
-
+    // VkPhysicalDeviceFeatures dev_features{};
+    // dev_features.fillModeNonSolid = VK_TRUE;
     VkDeviceCreateInfo device_create_info{};
     device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     device_create_info.queueCreateInfoCount = static_cast<uint32_t>(create_infos.size());
     device_create_info.pQueueCreateInfos = create_infos.data();
     device_create_info.enabledExtensionCount = DEVICE_EXTENSIONS.size();
     device_create_info.ppEnabledExtensionNames = DEVICE_EXTENSIONS.data();
-    device_create_info.pEnabledFeatures = &dev_features;
+    device_create_info.pEnabledFeatures = nullptr;
 
     return device_create_info;
 }

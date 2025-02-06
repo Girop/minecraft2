@@ -3,10 +3,9 @@
 #include <array>
 #include <vulkan/vk_enum_string_helper.h>
 #include <vector>
-#include <string>
 #include "logging.hpp"
 
-inline void check_vk(VkResult result, std::source_location loc = std::source_location::current()) 
+inline void check_vk(VkResult result, std::source_location const& loc = std::source_location::current()) 
 {
     if (result == VK_SUCCESS) return;
     const auto msg = fmt::format("Vulkan operation failed: {}\n", string_VkResult(result));
@@ -46,3 +45,10 @@ inline void verify_validation_layers()
     }
 }
 
+template <typename T>
+concept Enum = std::is_enum_v<std::decay_t<T>>;
+
+template <Enum EnumT>
+auto to_underlying(EnumT value) {
+    return std::underlying_type_t<EnumT>(value);
+}

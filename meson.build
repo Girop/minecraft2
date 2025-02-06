@@ -1,9 +1,4 @@
-project(
-  'renderer',
-  'cpp',
-  default_options: ['cpp_std=c++20']
-)
-
+project('renderer', 'cpp', default_options: ['cpp_std=c++20'])
 
 if host_machine.system() == 'windows'
 add_project_arguments(

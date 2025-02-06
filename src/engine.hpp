@@ -11,12 +11,8 @@
 #include "pipeline.hpp"
 #include "buffer.hpp"
 #include "uniforms.hpp"
+#include "image.hpp"
 
-struct Image {
-    VkImage image;
-    VkImageView image_view;
-    VkDeviceMemory memory;
-};
 
 class Engine {
     struct FrameData {
@@ -96,6 +92,7 @@ private:
     Buffer vertex_buffer_;
 
     glm::vec3 camera_pos_{0, 0, 2.f};
+
     uint32_t frame_number_{0};
     std::vector<std::function<void()>> deletion_queue_;
 };
