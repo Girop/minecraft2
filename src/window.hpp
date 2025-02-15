@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include <bitset>
+#include "utility.hpp"
 
 enum class Action {
     Left,
@@ -11,14 +12,21 @@ enum class Action {
     Backward,
     Up,
     Down,
+    Terminate,
     MAX_COUNT
 };
 
 class Window {
+
+    struct Mouse;
+
 public:
     Window(const char* name, int width = 800, int heighth = 600): 
-        handle_{create_handle(name, width, heighth)} 
-    {}
+        handle_{create_handle(name, width, heighth)}
+    {
+        glfwSetWindowUserPointer(handle_, (void*)this);
+        grab_mouse();
+    }
     Window(Window const&) = delete;
     Window operator=(Window const&) = delete;
     Window(Window&&) noexcept = default;
@@ -41,11 +49,24 @@ public:
         return glfwWindowShouldClose(handle_);
     }
 
-    std::vector<Action> collect_actions() const;
-    
-private:
-    GLFWwindow* create_handle(char const* name, int width, int height) const;
+    void grab_mouse();
+    void release_mouse();
+    bool is_grabbed() const {
+        return mouse_.grabbed;
+    }
 
-    std::bitset<static_cast<size_t>(Action::MAX_COUNT)> actions_;
+    std::vector<Action> collect_actions() const;
+
+    GETTER(Mouse, mouse);
+private:
+    static GLFWwindow* create_handle(char const* name, int width, int height);
+    
     GLFWwindow* handle_;
+    struct Mouse {
+        bool grabbed {false};
+        glm::vec2 movement{0.f, 0.f};
+        glm::vec2 position {0.f, 0.f};
+    } mouse_;
+    std::bitset<to_underlying(Action::MAX_COUNT)> actions_;
 };
+

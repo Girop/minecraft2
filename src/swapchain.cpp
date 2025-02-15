@@ -38,7 +38,7 @@ VkExtent2D SwapChainSupportDetails::choose_swap_extent(Window const& window) con
     auto size = window.size();
     VkExtent2D extent {
         .width = static_cast<uint32_t>(size.x),
-            .height = static_cast<uint32_t>(size.y)
+        .height = static_cast<uint32_t>(size.y)
     };
     extent.width = std::clamp(extent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
     extent.height = std::clamp(extent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);

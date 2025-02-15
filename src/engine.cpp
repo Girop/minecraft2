@@ -5,6 +5,7 @@
 #include "swapchain.hpp"
 #include "utility.hpp"
 #include <fmt/format.h>
+#include <chrono>
 #include <ranges>
 
 namespace init
@@ -52,7 +53,10 @@ VkSurfaceKHR create_surface(VkInstance instance, GLFWwindow *window)
 VkFence create_signaled_fence(VkDevice device)
 {
     VkFenceCreateInfo info{
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT
+    };
     VkFence fence;
     check_vk(vkCreateFence(device, &info, nullptr, &fence));
     return fence;
@@ -365,6 +369,8 @@ VkExtent2D create_extent(VkSurfaceCapabilitiesKHR const& capabilities, glm::uvec
 
 } // namespace init
 
+namespace {
+
 constexpr glm::vec3 red{1.f, 0.f, 0.f};
 constexpr glm::vec3 blue{0.f, 0.f, 1.f};
 constexpr glm::vec3 green{0.f, 1.f, 0.f};
@@ -410,8 +416,14 @@ uint32_t find_memory_type_idx(VkPhysicalDevice device, uint32_t type_filter, VkM
     return res;
 }
 
+bool requested_end(std::span<Action const> actions) {
+    auto const terminate_it = std::find(actions.begin(), actions.end(), Action::Terminate);
+    return terminate_it != actions.end();
+}
+
 constexpr VkFormat depth_format {VK_FORMAT_D32_SFLOAT};
 
+}
 
 
 Engine::Engine()
@@ -421,8 +433,9 @@ Engine::Engine()
     device_{Device::create(instance_, surface_)},
     swapchain_{Swapchain::create(device_, surface_, window_)},
     extent_{init::create_extent(swapchain_.details.capabilities, window_.size())},
+    camera_{extent_},
     viewport_{extent_},
-    queues_{[&]() {
+    queues_{[&] {
         auto const queue_families = QueueFamilyIndicies::from(device_.physical, surface_);
         auto const graphics_queue = queue_families.graphics_queue(device_.logical);
         auto const present_queue = queue_families.present_queue(device_.logical);
@@ -432,7 +445,7 @@ Engine::Engine()
     descriptor_set_layout_{init::create_descriptor_set_layout(device_.logical)},
     desc_pool_{init::create_descriptor_pool(device_.logical, FRAME_OVERLAP)},
     render_pass_{init::create_render_pass(device_.logical, swapchain_.color_format, depth_format)},
-    pipeline_{[&]() {
+    pipeline_{[&] {
         auto const binding_desc = binding_description();
         auto const attribute_desc = attribute_descritptions();
         auto const depth = init::depth_stencil_create_info(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
@@ -449,7 +462,7 @@ Engine::Engine()
     }()},
     frame_buffers_{init::create_frame_buffers(
         device_.logical, swapchain_, extent_, render_pass_, create_depth_image(depth_format).image_view)},
-    frame_data_{[&]() {
+    frame_data_{[&] {
         std::array<FrameData, FRAME_OVERLAP> data;
         auto const desc_sets = init::allocate_descriptor_sets<FRAME_OVERLAP>(device_.logical, descriptor_set_layout_, desc_pool_);
 
@@ -615,44 +628,48 @@ void Engine::run()
     while (not window_.should_close())
     {
         auto const actions = window_.collect_actions();
-        update_camera(actions);
+        if (requested_end(actions)) break;
+        update(actions);
         draw();
-        ++frame_number_;
     }
 }
 
-constexpr glm::vec3 target{0.f, 0.f, 0.f};
-constexpr float camera_speed{0.002};
-
-void Engine::update_camera(std::span<Action const> actions)
+void Engine::update(std::span<Action const> actions)
 {
-    float delta {camera_speed /* * current_frame().time_delta */};
+    constexpr float camera_speed{0.002};
+    float delta {camera_speed};
+
     for (auto const action : actions)
     {
         switch (action)
         {
         case Action::Forward:
-            camera_pos_.z -= delta;
+            player_position_.z += delta;
             break;
         case Action::Backward:
-            camera_pos_.z += delta;
+            player_position_.z -= delta;
             break;
         case Action::Left:
-            camera_pos_.x -= delta;
+            player_position_.x += delta;
             break;
         case Action::Right:
-            camera_pos_.x += delta;
+            player_position_.x -= delta;
             break;
         case Action::Down:
-            camera_pos_.y += delta;
+            player_position_.y += delta;
             break;
         case Action::Up:
-            camera_pos_.y -= delta;
+            player_position_.y -= delta;
             break;
         default:
             break;
         }
     }
+
+    // Mouse: x right, y down
+    auto& mouse_delta = window_.mouse().movement;
+    camera_.update(player_position_, mouse_delta);
+    mouse_delta = {};
 }
 
 void Engine::draw()
@@ -680,9 +697,10 @@ void Engine::draw()
 
     check_vk(acquired_image);
     prepare_framedata(image_index);
-    frame.uniform_buffer.copy(UniformBufferObject::current(extent_, camera_pos_, target));
+    frame.uniform_buffer.copy(UniformBufferObject{glm::mat4(1.f), camera_.view, camera_.projection});
     record(frame.cmd_buffer, indices.size(), frame.descriptor_set);
     submit(frame.cmd_buffer, image_index);
+    ++frame_number_;
 }
 
 void Engine::submit(VkCommandBuffer cmd_buf, uint32_t image_index) const

@@ -5,6 +5,16 @@
 #include <vector>
 #include "logging.hpp"
 
+
+#define GETTER(type, field) \
+    type& field() { \
+        return field##_; \
+    } \
+    type const& field() const {\
+        return field##_;\
+    }
+
+
 inline void check_vk(VkResult result, std::source_location const& loc = std::source_location::current()) 
 {
     if (result == VK_SUCCESS) return;
@@ -31,11 +41,11 @@ inline void verify_validation_layers()
             return std::strcmp(elem.layerName, layer) == 0;
         });
         
-        fmt::print("Validation layer {}: ", layer);
+ //       fmt::print("Validation layer {}: ", layer);
         if (found_it != available_layers.end()) {
-            fmt::println("FOUND");
+ //           fmt::println("FOUND");
         } else {
-            fmt::println("MISSING");
+//            fmt::println("MISSING");
             all_found = false;
         }
     }
@@ -49,6 +59,6 @@ template <typename T>
 concept Enum = std::is_enum_v<std::decay_t<T>>;
 
 template <Enum EnumT>
-auto to_underlying(EnumT value) {
+constexpr auto to_underlying(EnumT value) {
     return std::underlying_type_t<EnumT>(value);
 }

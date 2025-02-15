@@ -13,6 +13,7 @@ add_project_arguments(
   '-DGLM_FORCE_RADIANS ',
   '-DGLM_FORCE_DEFAULT_ALIGNED_GENTYPES',
   '-DGLM_FORCE_DEPTH_ZERO_TO_ONE',
+  '-D_USE_MATH_DEFINES',
   language: 'cpp'
 )
 
@@ -44,6 +45,7 @@ sources = files(
   'src/window.cpp',
   'src/uniforms.cpp',
   'src/device.cpp',
+  'src/camera.cpp',
 )
 
 executable(

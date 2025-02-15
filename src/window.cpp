@@ -12,11 +12,12 @@ const std::unordered_map<int, Action> mapping {
     {GLFW_KEY_D, Action::Right},
     {GLFW_KEY_LEFT_SHIFT, Action::Down},
     {GLFW_KEY_SPACE, Action::Up},
+    {GLFW_KEY_ESCAPE, Action::Terminate}
 };
 
 }
 
-GLFWwindow* Window::create_handle(char const* name, int width, int height) const
+GLFWwindow* Window::create_handle(char const* name, int width, int height)
 {
     if (not glfwInit()) 
     {
@@ -24,9 +25,8 @@ GLFWwindow* Window::create_handle(char const* name, int width, int height) const
     }
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    auto win = glfwCreateWindow(width, height, name, nullptr, nullptr);
+    auto win = glfwCreateWindow(width, height, name, nullptr, nullptr); 
     glfwSetInputMode(win, GLFW_STICKY_KEYS, GLFW_TRUE);
-    glfwSetWindowUserPointer(win, (void*)this);
     glfwSetKeyCallback(win, [](GLFWwindow* window, int key, [[maybe_unused]] int scancode, int key_action, [[maybe_unused]] int mods) {
         auto const mapping_it = mapping.find(key);
         if (mapping_it == mapping.end()) return;
@@ -44,14 +44,29 @@ GLFWwindow* Window::create_handle(char const* name, int width, int height) const
         }
 
     });
+    glfwSetCursorPosCallback(win, [](GLFWwindow* window, double x_pos, double y_pos) {
+        auto self = static_cast<Window*>(glfwGetWindowUserPointer(window));
+        glm::vec2 const new_pos {x_pos, y_pos};
+        self->mouse_.movement = glm::clamp(new_pos - self->mouse_.position, -100.f, 100.0f);
+        self->mouse_.position = new_pos;
+    });
     return win;
+}
+
+void Window::grab_mouse() {
+    mouse_.grabbed = true;
+    glfwSetInputMode(handle_, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+}
+
+void Window::release_mouse() {
+    mouse_.grabbed = false;
+    glfwSetInputMode(handle_, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 }
 
 std::vector<Action> Window::collect_actions() const {
     glfwPollEvents();
     std::vector<Action> player_actions;
-    auto const max = to_underlying(Action::MAX_COUNT);
-    for (int idx{}; idx < max; ++idx) 
+    for (int idx{}; idx < to_underlying(Action::MAX_COUNT); ++idx) 
     {
         if (actions_.test(idx))
         {

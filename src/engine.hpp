@@ -9,6 +9,7 @@
 #include "shader.hpp"
 #include "swapchain.hpp"
 #include "pipeline.hpp"
+#include "camera.hpp"
 #include "buffer.hpp"
 #include "uniforms.hpp"
 #include "image.hpp"
@@ -70,7 +71,7 @@ private:
     ) const;
     void submit(VkCommandBuffer cmd_buf, uint32_t image_index) const;
 
-    void update_camera(std::span<Action const> actions);
+    void update(std::span<Action const> actions);
 
     Window window_;
     VkInstance instance_;
@@ -78,6 +79,7 @@ private:
     Device device_;
     Swapchain swapchain_;
     VkExtent2D extent_;
+    PerspectiveCamera camera_;
     Viewport viewport_;
     Queues queues_;
     ShaderManager shaders_;
@@ -90,8 +92,7 @@ private:
 
     Buffer index_buffer_;
     Buffer vertex_buffer_;
-
-    glm::vec3 camera_pos_{0, 0, 2.f};
+    glm::vec3 player_position_;
 
     uint32_t frame_number_{0};
     std::vector<std::function<void()>> deletion_queue_;
