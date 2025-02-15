@@ -17,6 +17,7 @@ class ShaderManager {
 public:
     explicit ShaderManager(VkDevice device_);
 
+
     Shader vertex() const {
         return vertex_;
     }

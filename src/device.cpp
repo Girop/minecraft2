@@ -1,10 +1,10 @@
 #include <assert.h>
 #include <span>
 #include <set>
-#include "utility.hpp"
 #include "queues.hpp"
 #include "swapchain.hpp"
 #include "device.hpp"
+#include "utils/vulkan.hpp"
 
 constexpr std::array DEVICE_EXTENSIONS {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -69,7 +69,7 @@ class DeviceFinder
 
         auto device_info = device_create_info(create_infos);
         VkDevice device;
-        check_vk(vkCreateDevice(phys_device, &device_info, nullptr, &device));
+        utils::check_vk(vkCreateDevice(phys_device, &device_info, nullptr, &device));
         return device;
     }
 

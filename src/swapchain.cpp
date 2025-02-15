@@ -2,9 +2,9 @@
 #include <algorithm>
 #include "device.hpp"
 #include "queues.hpp"
+#include "utils/vulkan.hpp"
 #include "swapchain.hpp"
 #include "window.hpp"
-#include "utility.hpp"
 
 
 SwapChainSupportDetails SwapChainSupportDetails::create(VkPhysicalDevice device, VkSurfaceKHR surface)
@@ -147,7 +147,7 @@ std::vector<VkImageView> create_views(
             },
         };
 
-        check_vk(vkCreateImageView(device, &info, nullptr, &views[idx]));
+        utils::check_vk(vkCreateImageView(device, &info, nullptr, &views[idx]));
     }
     return views;
 }
@@ -160,7 +160,7 @@ Swapchain Swapchain::create(Device const& device, VkSurfaceKHR surface, Window c
     std::array queue_fam_indices {indicies.graphics.value(), indicies.present.value()};
     auto create_info = swapchain_create_info(surface, format, details, extent, queue_fam_indices);
     VkSwapchainKHR swapchain;
-    check_vk(vkCreateSwapchainKHR(device.logical, &create_info, nullptr, &swapchain));
+    utils::check_vk(vkCreateSwapchainKHR(device.logical, &create_info, nullptr, &swapchain));
 
     auto images = create_images(swapchain, device.logical);
     auto views = create_views(device.logical, images, format.format);

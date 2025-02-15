@@ -1,6 +1,6 @@
 #pragma once
 #include <glm/glm.hpp>
-#include "utility.hpp"
+#include "utils/getter.hpp"
 #include "interfaces.hpp"
 
 

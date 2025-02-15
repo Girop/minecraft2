@@ -1,7 +1,7 @@
 #include <unordered_map>
-#include "logging.hpp"
 #include "window.hpp"
-#include "utility.hpp"
+#include "utils/log.hpp"
+#include "utils/enums.hpp"
 
 namespace {
 
@@ -15,6 +15,13 @@ const std::unordered_map<int, Action> mapping {
     {GLFW_KEY_ESCAPE, Action::Terminate}
 };
 
+}
+
+Window::Window(const char* name, int width, int heighth):
+    handle_{create_handle(name, width, heighth)}
+{
+    glfwSetWindowUserPointer(handle_, (void*)this);
+    grab_mouse();
 }
 
 GLFWwindow* Window::create_handle(char const* name, int width, int height)
@@ -31,7 +38,7 @@ GLFWwindow* Window::create_handle(char const* name, int width, int height)
         auto const mapping_it = mapping.find(key);
         if (mapping_it == mapping.end()) return;
         auto self = static_cast<Window*>(glfwGetWindowUserPointer(window));
-        auto const action_idx = to_underlying(mapping_it->second);
+        auto const action_idx = utils::to_underlying(mapping_it->second);
 
         if (key_action == GLFW_RELEASE) 
         {
@@ -66,7 +73,7 @@ void Window::release_mouse() {
 std::vector<Action> Window::collect_actions() const {
     glfwPollEvents();
     std::vector<Action> player_actions;
-    for (int idx{}; idx < to_underlying(Action::MAX_COUNT); ++idx) 
+    for (int idx{}; idx < utils::to_underlying(Action::MAX_COUNT); ++idx) 
     {
         if (actions_.test(idx))
         {

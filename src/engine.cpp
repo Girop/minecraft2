@@ -3,13 +3,47 @@
 #include "queues.hpp"
 #include "shader.hpp"
 #include "swapchain.hpp"
-#include "utility.hpp"
+#include "utils/log.hpp"
+#include "utils/vulkan.hpp"
 #include <fmt/format.h>
 #include <glm/gtc/constants.hpp>
 #include <ranges>
 
 namespace init
 {
+
+constexpr std::array activated_validation_layers {
+    "VK_LAYER_KHRONOS_validation"
+};
+
+void verify_validation_layers() 
+{
+    uint32_t layerCount{};
+    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+    std::vector<VkLayerProperties> available_layers;
+    available_layers.resize(layerCount);
+    vkEnumerateInstanceLayerProperties(&layerCount, available_layers.data());
+    
+    bool all_found {true};
+
+    for (auto& layer: activated_validation_layers) {
+        auto found_it = std::ranges::find_if(available_layers, [&layer](auto& elem) {
+            return std::strcmp(elem.layerName, layer) == 0;
+        });
+        
+ //       fmt::print("Validation layer {}: ", layer);
+        if (found_it != available_layers.end()) {
+ //           fmt::println("FOUND");
+        } else {
+//            fmt::println("MISSING");
+            all_found = false;
+        }
+    }
+
+    if (not all_found) {
+        fail("Missing validation layers");
+    }
+}
 
 VkInstance create_instance()
 {
@@ -39,14 +73,14 @@ VkInstance create_instance()
     };
 
     VkInstance instance;
-    check_vk(vkCreateInstance(&createInfo, nullptr, &instance));
+    utils::check_vk(vkCreateInstance(&createInfo, nullptr, &instance));
     return instance;
 }
 
 VkSurfaceKHR create_surface(VkInstance instance, GLFWwindow *window)
 {
     VkSurfaceKHR surface;
-    check_vk(glfwCreateWindowSurface(instance, window, nullptr, &surface));
+    utils::check_vk(glfwCreateWindowSurface(instance, window, nullptr, &surface));
     return surface;
 }
 
@@ -58,7 +92,7 @@ VkFence create_signaled_fence(VkDevice device)
         .flags = VK_FENCE_CREATE_SIGNALED_BIT
     };
     VkFence fence;
-    check_vk(vkCreateFence(device, &info, nullptr, &fence));
+    utils::check_vk(vkCreateFence(device, &info, nullptr, &fence));
     return fence;
 }
 
@@ -71,7 +105,7 @@ VkSemaphore create_semaphore(VkDevice device)
     };
 
     VkSemaphore sem;
-    check_vk(vkCreateSemaphore(device, &info, nullptr, &sem));
+    utils::check_vk(vkCreateSemaphore(device, &info, nullptr, &sem));
     return sem;
 }
 
@@ -83,7 +117,7 @@ VkCommandPool create_command_pool(Device const& device, VkSurfaceKHR surface)
                                  .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
                                  .queueFamilyIndex = queue_families.graphics.value()};
     VkCommandPool comand_pool;
-    check_vk(vkCreateCommandPool(device.logical, &info, nullptr, &comand_pool));
+    utils::check_vk(vkCreateCommandPool(device.logical, &info, nullptr, &comand_pool));
     return comand_pool;
 }
 
@@ -98,7 +132,7 @@ VkCommandBuffer allocate_command_buffer(VkDevice device, VkCommandPool command_p
     };
 
     VkCommandBuffer buffer;
-    check_vk(vkAllocateCommandBuffers(device, &info, &buffer));
+    utils::check_vk(vkAllocateCommandBuffers(device, &info, &buffer));
 
     return buffer;
 }
@@ -174,7 +208,7 @@ VkRenderPass create_render_pass(VkDevice device, VkFormat color_format, VkFormat
                                             .pDependencies = dependencies.data()};
 
     VkRenderPass render_pass;
-    check_vk(vkCreateRenderPass(device, &render_pass_info, nullptr, &render_pass));
+    utils::check_vk(vkCreateRenderPass(device, &render_pass_info, nullptr, &render_pass));
     return render_pass;
 }
 
@@ -216,7 +250,7 @@ VkDescriptorSetLayout create_descriptor_set_layout(VkDevice device)
     };
 
     VkDescriptorSetLayout descriptor_set_layout;
-    check_vk(vkCreateDescriptorSetLayout(device, &info, nullptr, &descriptor_set_layout));
+    utils::check_vk(vkCreateDescriptorSetLayout(device, &info, nullptr, &descriptor_set_layout));
     return descriptor_set_layout;
 }
 
@@ -237,7 +271,7 @@ VkDescriptorPool create_descriptor_pool(VkDevice device, uint32_t frame_count)
     };
 
     VkDescriptorPool pool;
-    check_vk(vkCreateDescriptorPool(device, &info, nullptr, &pool));
+    utils::check_vk(vkCreateDescriptorPool(device, &info, nullptr, &pool));
     return pool;
 }
 
@@ -253,7 +287,7 @@ std::array<VkDescriptorSet, FRAME_COUNT> allocate_descriptor_sets(VkDevice devic
                                            .pSetLayouts = layouts.data()};
 
     std::array<VkDescriptorSet, FRAME_COUNT> descriptor_sets;
-    check_vk(vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets.data()));
+    utils::check_vk(vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets.data()));
     return descriptor_sets;
 }
 
@@ -347,7 +381,7 @@ std::vector<VkFramebuffer> create_frame_buffers(
         info.width = extent.width;
         info.height = extent.height;
         info.layers = 1;
-        check_vk(vkCreateFramebuffer(device, &info, nullptr, &frame_buffers[idx]));
+        utils::check_vk(vkCreateFramebuffer(device, &info, nullptr, &frame_buffers[idx]));
     }
     return frame_buffers;
 }
@@ -521,7 +555,7 @@ Engine::Engine()
 Image Engine::create_depth_image(VkFormat depth_format) const {
     auto const depth_image_info = init::image_create_info(depth_format, extent_, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
     VkImage depth_image;
-    check_vk(vkCreateImage(device_.logical, &depth_image_info, nullptr, &depth_image));
+    utils::check_vk(vkCreateImage(device_.logical, &depth_image_info, nullptr, &depth_image));
 
     VkMemoryRequirements mem_reqs;
     vkGetImageMemoryRequirements(device_.logical, depth_image, &mem_reqs);
@@ -532,12 +566,12 @@ Image Engine::create_depth_image(VkFormat depth_format) const {
     alloc_info.memoryTypeIndex = find_memory_type_idx(device_.physical, mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     VkDeviceMemory mem;
-    check_vk(vkAllocateMemory(device_.logical, &alloc_info, nullptr, &mem));
-    check_vk(vkBindImageMemory(device_.logical, depth_image, mem, 0));
+    utils::check_vk(vkAllocateMemory(device_.logical, &alloc_info, nullptr, &mem));
+    utils::check_vk(vkBindImageMemory(device_.logical, depth_image, mem, 0));
 
     auto const depth_img_view_info = init::image_view_create_info(depth_format, depth_image, VK_IMAGE_ASPECT_DEPTH_BIT);
     VkImageView depth_image_view;
-    check_vk(vkCreateImageView(device_.logical, &depth_img_view_info, nullptr, &depth_image_view));
+    utils::check_vk(vkCreateImageView(device_.logical, &depth_img_view_info, nullptr, &depth_image_view));
 
     return {depth_image, depth_image_view, mem};
 }
@@ -551,7 +585,7 @@ Buffer Engine::create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemo
     create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     Buffer buffer;
-    check_vk(vkCreateBuffer(device_.logical, &create_info, nullptr, &buffer.buffer));
+    utils::check_vk(vkCreateBuffer(device_.logical, &create_info, nullptr, &buffer.buffer));
 
     VkMemoryRequirements mem_reqs;
     vkGetBufferMemoryRequirements(device_.logical, buffer.buffer, &mem_reqs);
@@ -562,7 +596,7 @@ Buffer Engine::create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemo
                                     .memoryTypeIndex =
                                         find_memory_type_idx(device_.physical, mem_reqs.memoryTypeBits, props)};
 
-    check_vk(vkAllocateMemory(device_.logical, &alloc_info, nullptr, &buffer.memory));
+    utils::check_vk(vkAllocateMemory(device_.logical, &alloc_info, nullptr, &buffer.memory));
     vkBindBufferMemory(device_.logical, buffer.buffer, buffer.memory, 0);
     buffer.size = size;
     return buffer;
@@ -642,7 +676,7 @@ void Engine::record(VkCommandBuffer cmd_buff, size_t count, VkDescriptorSet desc
     vkCmdBindDescriptorSets(cmd_buff, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.layout, 0, 1, &desc_set, 0, nullptr);
     vkCmdDrawIndexed(cmd_buff, count, 1, 0, 0, 0);
     vkCmdEndRenderPass(cmd_buff);
-    check_vk(vkEndCommandBuffer(cmd_buff));
+    utils::check_vk(vkEndCommandBuffer(cmd_buff));
 }
 
 void Engine::prepare_framedata(uint32_t framebuffer_idx)
@@ -681,7 +715,7 @@ void Engine::update(std::span<Action const> actions)
 void Engine::draw()
 {
     auto &frame = current_frame();
-    check_vk(vkWaitForFences(device_.logical, 1, &frame.frame_ready, VK_TRUE, 1000000000));
+    utils::check_vk(vkWaitForFences(device_.logical, 1, &frame.frame_ready, VK_TRUE, 1000000000));
     vkResetFences(device_.logical, 1, &frame.frame_ready);
 
     uint32_t image_index{};
@@ -701,7 +735,7 @@ void Engine::draw()
         return;
     }
 
-    check_vk(acquired_image);
+    utils::check_vk(acquired_image);
     prepare_framedata(image_index);
     frame.uniform_buffer.copy(UniformBufferObject{glm::mat4(1.f), camera_.view, camera_.projection});
     record(frame.cmd_buffer, indices.size(), frame.descriptor_set);
@@ -723,7 +757,7 @@ void Engine::submit(VkCommandBuffer cmd_buf, uint32_t image_index) const
                              .pCommandBuffers = &cmd_buf,
                              .signalSemaphoreCount = 1,
                              .pSignalSemaphores = &frame.render_finished};
-    check_vk(vkQueueSubmit(queues_.graphics, 1, &submit_info, frame.frame_ready));
+    utils::check_vk(vkQueueSubmit(queues_.graphics, 1, &submit_info, frame.frame_ready));
     VkPresentInfoKHR present_info{.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                                   .pNext = nullptr,
                                   .waitSemaphoreCount = 1,
@@ -732,7 +766,7 @@ void Engine::submit(VkCommandBuffer cmd_buf, uint32_t image_index) const
                                   .pSwapchains = &swapchain_.swapchain,
                                   .pImageIndices = &image_index,
                                   .pResults = nullptr};
-    check_vk(vkQueuePresentKHR(queues_.present, &present_info));
+    utils::check_vk(vkQueuePresentKHR(queues_.present, &present_info));
 }
 
 Buffer Engine::create_vertex_buf(std::span<Vertex const> verticies) const

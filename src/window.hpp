@@ -3,7 +3,8 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include <bitset>
-#include "utility.hpp"
+#include "utils/enums.hpp"
+#include "utils/getter.hpp"
 
 enum class Action {
     Left,
@@ -21,22 +22,13 @@ class Window {
     struct Mouse;
 
 public:
-    Window(const char* name, int width = 800, int heighth = 600): 
-        handle_{create_handle(name, width, heighth)}
-    {
-        glfwSetWindowUserPointer(handle_, (void*)this);
-        grab_mouse();
-    }
+    Window(const char* name, int width = 800, int heighth = 600);
     Window(Window const&) = delete;
     Window operator=(Window const&) = delete;
     Window(Window&&) noexcept = default;
     Window& operator=(Window&&) noexcept = default;
     ~Window() {
         glfwDestroyWindow(handle_);
-    }
-
-    GLFWwindow* handle() const {
-        return handle_;
     }
 
     glm::uvec2 size() const {
@@ -57,7 +49,8 @@ public:
 
     std::vector<Action> collect_actions() const;
 
-    GETTER(Mouse, mouse);
+    GETTER(Mouse, mouse)
+    GETTER(GLFWwindow*, handle)
 private:
     static GLFWwindow* create_handle(char const* name, int width, int height);
     
@@ -67,6 +60,6 @@ private:
         glm::vec2 movement{0.f, 0.f};
         glm::vec2 position {0.f, 0.f};
     } mouse_;
-    std::bitset<to_underlying(Action::MAX_COUNT)> actions_;
+    std::bitset<utils::to_underlying(Action::MAX_COUNT)> actions_;
 };
 

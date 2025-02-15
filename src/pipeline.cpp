@@ -1,6 +1,6 @@
 #include <array>
 #include "pipeline.hpp"
-#include "utility.hpp"
+#include "utils/vulkan.hpp"
 
 // TODO move both free functions somewhere (resoruce mngmnt prblms)
 VkDescriptorSetLayout create_descriptor_set_layout(VkDevice device) 
@@ -23,7 +23,7 @@ VkDescriptorSetLayout create_descriptor_set_layout(VkDevice device)
     };
 
     VkDescriptorSetLayout descriptor_set_layout;
-    check_vk(vkCreateDescriptorSetLayout(device, &info, nullptr, &descriptor_set_layout));
+    utils::check_vk(vkCreateDescriptorSetLayout(device, &info, nullptr, &descriptor_set_layout));
     return descriptor_set_layout;
 }
 
@@ -33,7 +33,7 @@ VkPipelineLayout create_pipeline_layout(VkDevice device, VkDescriptorSetLayout d
     info.setLayoutCount = 1;
     info.pSetLayouts = &desc_set_layout;
     VkPipelineLayout layout;
-    check_vk(vkCreatePipelineLayout(device, &info, nullptr, &layout));
+    utils::check_vk(vkCreatePipelineLayout(device, &info, nullptr, &layout));
     return layout;
 }
 
@@ -128,7 +128,7 @@ Pipeline PipelineBuilder::build(VkDevice device) const {
     pipeline_info.basePipelineIndex = -1;
 
     VkPipeline pipeline;
-    check_vk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline));
+    utils::check_vk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline));
     return Pipeline{pipeline, pipeline_layout};
 }
 

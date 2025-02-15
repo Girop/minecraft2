@@ -1,7 +1,7 @@
 #include <fstream>
 #include <unordered_map>
 #include "shader.hpp"
-#include "utility.hpp"
+#include "utils/vulkan.hpp"
 
 std::unordered_map<ShaderType, std::filesystem::path> const mapping {
     {ShaderType::Fragment, "build/shaders/triangle.frag.spv"},
@@ -20,7 +20,8 @@ Shader ShaderManager::create_shader(ShaderType type) const {
 std::vector<std::byte> ShaderManager::load(std::filesystem::path const& path) const {
     std::ifstream fstream {path, std::ios::ate | std::ios::binary};
 
-    if (!fstream.is_open()) {
+    if (!fstream.is_open()) 
+    {
         fail(fmt::format("Failed to open: {}", path.string()));
     }
 
@@ -36,7 +37,7 @@ VkShaderModule ShaderManager::compile(std::vector<std::byte> const& code) const 
     info.codeSize = code.size();
     info.pCode = reinterpret_cast<const uint32_t*>(code.data());
     VkShaderModule module;
-    check_vk(vkCreateShaderModule(device_, &info, nullptr, &module));
+    utils::check_vk(vkCreateShaderModule(device_, &info, nullptr, &module));
     return module;
 }
 
