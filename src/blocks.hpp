@@ -1,7 +1,14 @@
 #pragma once
-#include <cstdint>
+#include <array>
+#include <glm/glm.hpp>
 
-enum class BlockType : uint8_t {
-  Grass,
-  Stone,
+
+struct Block {
+    glm::vec3 position;
 };
+
+
+struct Chunk {
+    std::array<std::array<Block, 256>, 256> blocks;
+};
+

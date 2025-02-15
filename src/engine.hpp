@@ -92,7 +92,7 @@ private:
 
     Buffer index_buffer_;
     Buffer vertex_buffer_;
-    glm::vec3 player_position_;
+    glm::vec3 player_position_ {-2.f, 0, 0};
 
     uint32_t frame_number_{0};
     std::vector<std::function<void()>> deletion_queue_;

@@ -5,7 +5,7 @@
 #include "swapchain.hpp"
 #include "utility.hpp"
 #include <fmt/format.h>
-#include <chrono>
+#include <glm/gtc/constants.hpp>
 #include <ranges>
 
 namespace init
@@ -376,7 +376,7 @@ constexpr glm::vec3 blue{0.f, 0.f, 1.f};
 constexpr glm::vec3 green{0.f, 1.f, 0.f};
 
 constexpr float p {0.5f};
-const std::vector<Vertex> verticies_back {
+std::vector<Vertex> verticies_back {
     {{-p, -p, -p}, red},  // 0
     {{-p, p, -p}, green}, // 1
     {{p, p, -p}, blue},   // 2
@@ -423,6 +423,36 @@ bool requested_end(std::span<Action const> actions) {
 
 constexpr VkFormat depth_format {VK_FORMAT_D32_SFLOAT};
 
+}
+
+glm::vec3 calculate_movement(Action const action, float const speed, float const yaw)
+{
+    float delta {speed};
+    glm::vec3 mov(0.0f);
+    switch (action) {
+        case Action::Backward:
+            delta *= -1.f;
+            [[fallthrough]];
+        case Action::Forward:
+            mov.z += sinf(yaw) * delta;
+            mov.x += cosf(yaw) * delta;
+            break;
+        case Action::Left:
+            delta *= -1.f;
+            [[fallthrough]];
+        case Action::Right:;
+            mov.z += sinf(yaw + glm::half_pi<float>()) * delta;
+            mov.x += cosf(yaw + glm::half_pi<float>()) * delta;
+            break;
+        case Action::Up:
+            delta *= -1.f;
+            [[fallthrough]];
+        case Action::Down:
+            mov.y += delta;
+            break;
+        default: break;
+    }
+    return mov;
 }
 
 
@@ -636,40 +666,16 @@ void Engine::run()
 
 void Engine::update(std::span<Action const> actions)
 {
-    constexpr float camera_speed{0.002};
-    float delta {camera_speed};
-
-    for (auto const action : actions)
-    {
-        switch (action)
-        {
-        case Action::Forward:
-            player_position_.z += delta;
-            break;
-        case Action::Backward:
-            player_position_.z -= delta;
-            break;
-        case Action::Left:
-            player_position_.x += delta;
-            break;
-        case Action::Right:
-            player_position_.x -= delta;
-            break;
-        case Action::Down:
-            player_position_.y += delta;
-            break;
-        case Action::Up:
-            player_position_.y -= delta;
-            break;
-        default:
-            break;
-        }
-    }
-
     // Mouse: x right, y down
     auto& mouse_delta = window_.mouse().movement;
     camera_.update(player_position_, mouse_delta);
     mouse_delta = {};
+
+    constexpr float camera_speed{0.003};
+    for (auto const action : actions)
+    {
+        player_position_ += calculate_movement(action, camera_speed, camera_.yaw);
+    }
 }
 
 void Engine::draw()
