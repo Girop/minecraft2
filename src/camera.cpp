@@ -1,9 +1,7 @@
 #include <vulkan/vulkan.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <math.h>
-#include <fmt/format.h>
 #include "camera.hpp"
-
 
 PerspectiveCamera::PerspectiveCamera(VkExtent2D const& extent):
     pitch{0.0f},
@@ -11,7 +9,7 @@ PerspectiveCamera::PerspectiveCamera(VkExtent2D const& extent):
     znear{0.001f},
     zfar{1000.f},
     aspect_rato{static_cast<float>(extent.width) / static_cast<float>(extent.height)},
-    fov{M_PI / 2},
+    fov{glm::pi<float>() / 2.f},
     up_dir{0.f, 1.f, 0.f},
     position{0.f},
     target{0.f},

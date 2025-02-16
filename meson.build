@@ -13,7 +13,6 @@ add_project_arguments(
   '-DGLM_FORCE_RADIANS ',
   '-DGLM_FORCE_DEFAULT_ALIGNED_GENTYPES',
   '-DGLM_FORCE_DEPTH_ZERO_TO_ONE',
-  '-D_USE_MATH_DEFINES',
   language: 'cpp'
 )
 
@@ -24,16 +23,15 @@ cpp_args = [
   '-Wextra',
 ]
 
-fmt = subproject('fmt', default_options: 'default_library=static')
-
 subdir('shaders')
 
 deps = [
   dependency('glm'),
-  fmt.get_variable('fmt_dep'),
+  subproject('fmt', default_options: 'default_library=static').get_variable('fmt_dep'),
   dependency('vulkan'),
   dependency('glfw3', static: true, method: 'pkg-config'),
-  shader_dep
+  shader_dep,
+  dependency('stb')
 ]
 
 sources = files(
@@ -45,7 +43,7 @@ sources = files(
   'src/window.cpp',
   'src/uniforms.cpp',
   'src/device.cpp',
-  'src/camera.cpp',
+  'src/camera.cpp'
 )
 
 executable(

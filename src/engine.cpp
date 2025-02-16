@@ -8,6 +8,10 @@
 #include <fmt/format.h>
 #include <glm/gtc/constants.hpp>
 #include <ranges>
+#include <functional>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 namespace init
 {
@@ -84,12 +88,18 @@ VkSurfaceKHR create_surface(VkInstance instance, GLFWwindow *window)
     return surface;
 }
 
-VkFence create_signaled_fence(VkDevice device)
+VkFence create_fence(VkDevice device, bool signaled)
 {
+    VkFlags flags{};
+    if (signaled) 
+    {
+        flags |= VK_FENCE_CREATE_SIGNALED_BIT;
+    }
+
     VkFenceCreateInfo info{
         .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
         .pNext = nullptr,
-        .flags = VK_FENCE_CREATE_SIGNALED_BIT
+        .flags = flags
     };
     VkFence fence;
     utils::check_vk(vkCreateFence(device, &info, nullptr, &fence));
@@ -211,6 +221,7 @@ VkRenderPass create_render_pass(VkDevice device, VkFormat color_format, VkFormat
     utils::check_vk(vkCreateRenderPass(device, &render_pass_info, nullptr, &render_pass));
     return render_pass;
 }
+
 
 constexpr VkClearValue clear_color{{{0.f, 0.f, 0.f, 1.f}}};
 constexpr VkClearValue clear_depth {.depthStencil = {.depth = 1.f, .stencil = 0}};
@@ -538,7 +549,7 @@ Engine::Engine()
             frame.cmd_buffer = init::allocate_command_buffer(device_.logical, cmd_pool_);
             frame.render_finished = init::create_semaphore(device_.logical);
             frame.image_ready = init::create_semaphore(device_.logical);
-            frame.frame_ready = init::create_signaled_fence(device_.logical);
+            frame.frame_ready = init::create_fence(device_.logical, true);
             frame.uniform_buffer = create_uniform_buf();
 
             frame.descriptor_set = desc_sets.at(idx);
@@ -549,8 +560,134 @@ Engine::Engine()
         return data;
     }()},
     index_buffer_{create_index_buf(indices)},
-    vertex_buffer_{create_vertex_buf(verticies_back)}
+    vertex_buffer_{create_vertex_buf(verticies_back)},
+    upload_context_{[&] {
+        UploadContext ctx{};
+        ctx.fence = init::create_fence(device_.logical, false);
+        ctx.cmd_pool = init::create_command_pool(device_, surface_);
+        ctx.cmd = init::allocate_command_buffer(device_.logical, ctx.cmd_pool);
+        return ctx;
+    }()}
 {}
+
+Texture Engine::load_texture(std::filesystem::path const& path) 
+{
+    int x, y, chan;
+    auto const* pixels = stbi_load(path.string().c_str(), &x, &y, &chan, STBI_rgb_alpha);
+    assert(pixels);
+
+    VkDeviceSize size = x * y * 4;
+    VkFormat format {VK_FORMAT_R8G8B8A8_SRGB};
+    
+    VkExtent2D extent {
+        .width = static_cast<uint32_t>(x),
+        .height = static_cast<uint32_t>(y)
+    };
+
+    const auto info = init::image_create_info(format, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+
+    auto staging_buf = create_buffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    copy_buffer(pixels, staging_buf);
+    
+    Texture tex;     
+    utils::check_vk(vkCreateImage(device_.logical, &info, nullptr, &tex.image));
+
+    VkMemoryRequirements mem_reqs;
+    vkGetImageMemoryRequirements(device_.logical, tex.image, &mem_reqs);
+
+    VkMemoryAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+    alloc_info.allocationSize = mem_reqs.size;
+    alloc_info.memoryTypeIndex = find_memory_type_idx(device_.physical, mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    // fmt::println("Mem req: {}, Size: {}", mem_reqs.size, size);
+
+    utils::check_vk(vkAllocateMemory(device_.logical, &alloc_info, nullptr, &tex.memory));
+    utils::check_vk(vkBindImageMemory(device_.logical, tex.image, tex.memory, 0));
+
+    
+    immediate_submit([&] (VkCommandBuffer cmd) {
+        VkImageSubresourceRange subresources_range {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        };
+
+        VkImageMemoryBarrier imageBarrier_toTransfer {};
+        imageBarrier_toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        imageBarrier_toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageBarrier_toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        imageBarrier_toTransfer.image = tex.image;
+        imageBarrier_toTransfer.subresourceRange = subresources_range;
+        imageBarrier_toTransfer.srcAccessMask = 0;
+        imageBarrier_toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        vkCmdPipelineBarrier(
+            cmd,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0,
+            0,
+            nullptr,
+            0,
+            nullptr,
+            1,
+            &imageBarrier_toTransfer
+        );
+
+
+        VkBufferImageCopy copyRegion {};
+        copyRegion.bufferOffset = 0;
+        copyRegion.bufferRowLength = 0;
+        copyRegion.bufferImageHeight = 0;
+
+        copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copyRegion.imageSubresource.mipLevel = 0;
+        copyRegion.imageSubresource.baseArrayLayer = 0;
+        copyRegion.imageSubresource.layerCount = 1;
+        copyRegion.imageExtent = {extent.width, extent.height, 1};
+
+
+        vkCmdCopyBufferToImage(cmd, staging_buf.buffer, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+
+        VkImageMemoryBarrier imageBarrier_toReadable = imageBarrier_toTransfer;
+
+        imageBarrier_toReadable.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        imageBarrier_toReadable.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        imageBarrier_toReadable.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        imageBarrier_toReadable.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier_toReadable);
+    });
+
+	auto image_info {init::image_view_create_info(VK_FORMAT_R8G8B8A8_SRGB, tex.image, VK_IMAGE_ASPECT_COLOR_BIT)};
+    utils::check_vk(vkCreateImageView(device_.logical, &image_info, nullptr, &tex.image_view));
+    return tex;
+}
+
+void Engine::immediate_submit(std::function<void(VkCommandBuffer cmd)>&& func) 
+{
+    VkCommandBufferBeginInfo begin_info{};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    
+    utils::check_vk(vkBeginCommandBuffer(upload_context_.cmd, &begin_info));
+    func(upload_context_.cmd);
+    utils::check_vk(vkEndCommandBuffer(upload_context_.cmd));
+
+    VkSubmitInfo submit_info {};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &upload_context_.cmd;
+
+    utils::check_vk(vkQueueSubmit(queues_.graphics, 1, &submit_info, upload_context_.fence));
+    vkWaitForFences(device_.logical, 1, &upload_context_.fence, VK_TRUE, UINT64_MAX);
+    vkResetFences(device_.logical, 1, &upload_context_.fence);
+    vkResetCommandBuffer(upload_context_.cmd, 0);
+}
 
 Image Engine::create_depth_image(VkFormat depth_format) const {
     auto const depth_image_info = init::image_create_info(depth_format, extent_, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
@@ -606,8 +743,12 @@ UniformBuffer Engine::create_uniform_buf() const
 {
     constexpr size_t ubo_size{sizeof(UniformBufferObject)};
     UniformBuffer ub;
-    ub.buffer = create_buffer(ubo_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    ub.buffer = create_buffer(
+        ubo_size,
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
     vkMapMemory(device_.logical, ub.buffer.memory, 0, ubo_size, 0, &ub.mapped);
     return ub;
 }
@@ -689,6 +830,7 @@ void Engine::prepare_framedata(uint32_t framebuffer_idx)
 
 void Engine::run()
 {
+    textures_["dirt"] = load_texture("res/dirt.png");
     while (not window_.should_close())
     {
         auto const actions = window_.collect_actions();
@@ -715,7 +857,7 @@ void Engine::update(std::span<Action const> actions)
 void Engine::draw()
 {
     auto &frame = current_frame();
-    utils::check_vk(vkWaitForFences(device_.logical, 1, &frame.frame_ready, VK_TRUE, 1000000000));
+    utils::check_vk(vkWaitForFences(device_.logical, 1, &frame.frame_ready, VK_TRUE, UINT64_MAX));
     vkResetFences(device_.logical, 1, &frame.frame_ready);
 
     uint32_t image_index{};
