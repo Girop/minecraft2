@@ -43,7 +43,8 @@ sources = files(
   'src/window.cpp',
   'src/uniforms.cpp',
   'src/device.cpp',
-  'src/camera.cpp'
+  'src/camera.cpp',
+  'src/vertex.cpp'
 )
 
 executable(

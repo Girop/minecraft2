@@ -2,7 +2,7 @@
 #include <GLFW/glfw3.h>
 #include <span>
 #include <functional>
-#include "descriptors.hpp"
+#include "vertex.hpp"
 #include "viewport.hpp"
 #include "window.hpp"
 #include "device.hpp"
@@ -25,7 +25,8 @@ class Engine {
         VkFence frame_ready;
         VkFramebuffer framebuffer;
         UniformBuffer uniform_buffer;
-        VkDescriptorSet descriptor_set; // TODO: Merge into uniforms
+        VkDescriptorSet ubo_descriptors;
+        VkDescriptorSet texture_descriptors;
         float time_delta;
     };
     
@@ -65,7 +66,7 @@ private:
     Buffer create_vertex_buf(std::span<Vertex const> verticies) const;
     Buffer create_index_buf(std::span<uint16_t const> indicies) const;
 
-    void record(VkCommandBuffer cmd_buff, size_t count, VkDescriptorSet desc_set) const;
+    void record(VkCommandBuffer cmd_buff, size_t count) const;
     void submit(VkCommandBuffer cmd_buf, uint32_t image_index) const;
 
     void update(std::span<Action const> actions);
@@ -81,7 +82,9 @@ private:
     Viewport viewport_;
     Queues queues_;
     ShaderManager shaders_;
-    VkDescriptorSetLayout descriptor_set_layout_;
+    VkDescriptorSetLayout ubo_layout_;
+    VkDescriptorSetLayout texture_layout_;
+    VkSampler sampler_;
     VkDescriptorPool desc_pool_;
     VkRenderPass render_pass_;
     Pipeline pipeline_;

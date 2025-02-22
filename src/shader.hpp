@@ -17,7 +17,6 @@ class ShaderManager {
 public:
     explicit ShaderManager(VkDevice device_);
 
-
     Shader vertex() const {
         return vertex_;
     }
@@ -35,3 +34,4 @@ private:
     Shader vertex_;
     Shader fragment_;
 };
+

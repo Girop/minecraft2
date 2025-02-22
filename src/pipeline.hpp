@@ -1,7 +1,7 @@
 #pragma once
 #include <vector>
-#include <span>
 #include "viewport.hpp"
+#include "vertex.hpp"
 
 struct Pipeline {
     VkPipeline pipeline;
@@ -15,6 +15,7 @@ public:
     PipelineBuilder();
     Pipeline build(VkDevice device) const;
 
+    PipelineBuilder& set_descriptor_sets(VkDescriptorSetLayout ubo, VkDescriptorSetLayout texture);
     PipelineBuilder& set_vertex(VkShaderModule vertex);
     PipelineBuilder& set_fragment(VkShaderModule fragment);
     PipelineBuilder& set_viewport(Viewport const& viewport);
@@ -24,7 +25,7 @@ public:
     }
     PipelineBuilder& set_descriptors(
         VkVertexInputBindingDescription binding,
-        std::span<VkVertexInputAttributeDescription const> descs
+        Vertex::AttributeDescriptions attribute
     );
     PipelineBuilder& set_depth_testing(VkPipelineDepthStencilStateCreateInfo depthstencil) {
         depth_create_info_ = depthstencil;
@@ -55,7 +56,9 @@ private:
     struct {
         VkPipelineVertexInputStateCreateInfo info;
         VkVertexInputBindingDescription binding_desriptions;
-        std::vector<VkVertexInputAttributeDescription> attribute_descriptions;
+        Vertex::AttributeDescriptions attribute_descriptions;
     } inpute_vertex_;
+    
+    std::vector<VkDescriptorSetLayout> descriptor_layouts_;
 };
 

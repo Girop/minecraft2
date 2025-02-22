@@ -4,8 +4,8 @@
 #include "utils/vulkan.hpp"
 
 std::unordered_map<ShaderType, std::filesystem::path> const mapping {
-    {ShaderType::Fragment, "build/shaders/triangle.frag.spv"},
-    {ShaderType::Vertex, "build/shaders/triangle.vert.spv"},
+    {ShaderType::Fragment, "build/shaders/textured_cube.frag.spv"},
+    {ShaderType::Vertex, "build/shaders/textured_cube.vert.spv"},
 };
 
 Shader ShaderManager::create_shader(ShaderType type) const {

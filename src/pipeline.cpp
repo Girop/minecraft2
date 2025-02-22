@@ -1,37 +1,14 @@
 #include <array>
+#include <span>
 #include "pipeline.hpp"
 #include "utils/vulkan.hpp"
 
-// TODO move both free functions somewhere (resoruce mngmnt prblms)
-VkDescriptorSetLayout create_descriptor_set_layout(VkDevice device) 
-{
-    VkDescriptorSetLayoutBinding ubo_layout_binding {
-        .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = 1,
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-        .pImmutableSamplers = nullptr,
-    };
-    
 
-    VkDescriptorSetLayoutCreateInfo info {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .bindingCount = 1,
-        .pBindings = &ubo_layout_binding,
-    };
-
-    VkDescriptorSetLayout descriptor_set_layout;
-    utils::check_vk(vkCreateDescriptorSetLayout(device, &info, nullptr, &descriptor_set_layout));
-    return descriptor_set_layout;
-}
-
-VkPipelineLayout create_pipeline_layout(VkDevice device, VkDescriptorSetLayout desc_set_layout) {
+VkPipelineLayout create_pipeline_layout(VkDevice device, std::span<VkDescriptorSetLayout const> layouts) {
     VkPipelineLayoutCreateInfo info {};
     info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    info.setLayoutCount = 1;
-    info.pSetLayouts = &desc_set_layout;
+    info.setLayoutCount = layouts.size();
+    info.pSetLayouts = layouts.data();
     VkPipelineLayout layout;
     utils::check_vk(vkCreatePipelineLayout(device, &info, nullptr, &layout));
     return layout;
@@ -82,22 +59,27 @@ PipelineBuilder::PipelineBuilder() {
 }
 
 PipelineBuilder& PipelineBuilder::set_descriptors(
-    VkVertexInputBindingDescription binding,
-    std::span<VkVertexInputAttributeDescription const> descs
+        VkVertexInputBindingDescription binding,
+        Vertex::AttributeDescriptions attribute
 ) {
     inpute_vertex_.binding_desriptions = binding;
-    inpute_vertex_.attribute_descriptions = std::vector(descs.begin(), descs.end());
-    auto const& attribute_desc = inpute_vertex_.attribute_descriptions;
-
-    inpute_vertex_.info =  {
+    inpute_vertex_.attribute_descriptions = attribute;
+    
+    size_t const attribute_count {sizeof attribute / sizeof attribute.color};
+    inpute_vertex_.info = VkPipelineVertexInputStateCreateInfo {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
         .vertexBindingDescriptionCount = 1,
         .pVertexBindingDescriptions = &inpute_vertex_.binding_desriptions,
-        .vertexAttributeDescriptionCount = static_cast<uint32_t>(attribute_desc.size()),
-        .pVertexAttributeDescriptions = attribute_desc.data()
+        .vertexAttributeDescriptionCount = attribute_count,
+        .pVertexAttributeDescriptions = reinterpret_cast<VkVertexInputAttributeDescription*>(&inpute_vertex_.attribute_descriptions)
     };
+    return *this;
+}
+
+PipelineBuilder& PipelineBuilder::set_descriptor_sets(VkDescriptorSetLayout ubo, VkDescriptorSetLayout texture) {
+    descriptor_layouts_ = std::vector{ubo, texture};
     return *this;
 }
 
@@ -107,9 +89,7 @@ Pipeline PipelineBuilder::build(VkDevice device) const {
     auto const multisampling = multisampling_info();
     auto const dynamic_states = dynamic_state_info();
     auto const blend = blend_info();
-
-    auto const descriptor_set_layout = create_descriptor_set_layout(device);
-    auto const pipeline_layout = create_pipeline_layout(device, descriptor_set_layout);
+    auto const pipeline_layout = create_pipeline_layout(device, descriptor_layouts_);
 
     VkGraphicsPipelineCreateInfo pipeline_info {};
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;

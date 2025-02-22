@@ -1,5 +1,5 @@
 #include "engine.hpp"
-#include "descriptors.hpp"
+#include "vertex.hpp"
 #include "queues.hpp"
 #include "shader.hpp"
 #include "swapchain.hpp"
@@ -242,22 +242,44 @@ VkRenderPassBeginInfo render_pass_begin_info(VkRenderPass render_pass, VkFramebu
     return render_pass_info;
 }
 
-VkDescriptorSetLayout create_descriptor_set_layout(VkDevice device)
+VkSampler create_sampler(
+    VkDevice device,
+    VkFilter filter,
+    VkSamplerAddressMode address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT) 
 {
-    VkDescriptorSetLayoutBinding ubo_layout_binding{
+    VkSamplerCreateInfo info {};
+    info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    info.magFilter = filter;
+    info.minFilter = filter;
+    info.addressModeU = address_mode;
+    info.addressModeV = address_mode;
+    info.addressModeW = address_mode;
+
+    VkSampler sampler;
+    utils::check_vk(vkCreateSampler(device, &info, nullptr, &sampler));
+    return sampler;
+}
+
+VkDescriptorSetLayout create_descriptor_set_layout(
+    VkDevice device,
+    VkDescriptorType desc_type,
+    VkShaderStageFlags stage_flags)
+{
+    VkDescriptorSetLayoutBinding layout_binding {
         .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorType = desc_type,
         .descriptorCount = 1,
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .stageFlags = stage_flags,
         .pImmutableSamplers = nullptr,
     };
+    
 
-    VkDescriptorSetLayoutCreateInfo info{
+    VkDescriptorSetLayoutCreateInfo info {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
         .bindingCount = 1,
-        .pBindings = &ubo_layout_binding,
+        .pBindings = &layout_binding,
     };
 
     VkDescriptorSetLayout descriptor_set_layout;
@@ -267,19 +289,16 @@ VkDescriptorSetLayout create_descriptor_set_layout(VkDevice device)
 
 VkDescriptorPool create_descriptor_pool(VkDevice device, uint32_t frame_count)
 {
-    VkDescriptorPoolSize size{
-        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = frame_count,
+    std::array sizes {
+        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame_count},
+        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, frame_count},
     };
 
-    VkDescriptorPoolCreateInfo info{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .maxSets = frame_count,
-        .poolSizeCount = 1,
-        .pPoolSizes = &size,
-    };
+    VkDescriptorPoolCreateInfo info {};
+    info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    info.maxSets = static_cast<uint32_t>(frame_count * sizes.size());
+    info.poolSizeCount = sizes.size();
+    info.pPoolSizes = sizes.data();
 
     VkDescriptorPool pool;
     utils::check_vk(vkCreateDescriptorPool(device, &info, nullptr, &pool));
@@ -287,8 +306,10 @@ VkDescriptorPool create_descriptor_pool(VkDevice device, uint32_t frame_count)
 }
 
 template <uint32_t FRAME_COUNT>
-std::array<VkDescriptorSet, FRAME_COUNT> allocate_descriptor_sets(VkDevice device, VkDescriptorSetLayout layout,
-                                                                  VkDescriptorPool pool)
+std::array<VkDescriptorSet, FRAME_COUNT> allocate_descriptor_sets(
+    VkDevice device,
+    VkDescriptorSetLayout layout,
+    VkDescriptorPool pool)
 {
     std::array<VkDescriptorSetLayout, FRAME_COUNT> layouts{layout, layout};
     VkDescriptorSetAllocateInfo alloc_info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -302,7 +323,7 @@ std::array<VkDescriptorSet, FRAME_COUNT> allocate_descriptor_sets(VkDevice devic
     return descriptor_sets;
 }
 
-void fill_descriptor_set(VkDevice device, VkDescriptorSet set, UniformBuffer const &ub)
+void fill_ubo_desc_set(VkDevice device, VkDescriptorSet set, UniformBuffer const &ub)
 {
     VkDescriptorBufferInfo buffer_info{.buffer = ub.buffer.buffer, .offset = 0, .range = sizeof(UniformBufferObject)};
 
@@ -319,6 +340,25 @@ void fill_descriptor_set(VkDevice device, VkDescriptorSet set, UniformBuffer con
         .pTexelBufferView = nullptr,
     };
     vkUpdateDescriptorSets(device, 1, &desc_write, 0, nullptr);
+}
+
+void fill_texture_desc_set(VkDevice device, VkDescriptorSet desc_set, Texture const& texture, VkSampler sampler)
+{
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageView = texture.image_view;
+    imageInfo.sampler = sampler;
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkWriteDescriptorSet descriptorWrite{};
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.dstSet = desc_set;
+    descriptorWrite.dstBinding = 0;
+    descriptorWrite.dstArrayElement = 0;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.pImageInfo = &imageInfo;
+
+    vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
 }
 
 
@@ -420,16 +460,21 @@ constexpr glm::vec3 red{1.f, 0.f, 0.f};
 constexpr glm::vec3 blue{0.f, 0.f, 1.f};
 constexpr glm::vec3 green{0.f, 1.f, 0.f};
 
+constexpr glm::vec2 left_lower {0.f, 0.f};
+constexpr glm::vec2 left_upper {0.f, 1.f};
+constexpr glm::vec2 right_lower {1.f, 0.f};
+constexpr glm::vec2 right_upper {1.f, 1.f};
+
 constexpr float p {0.5f};
-std::vector<Vertex> verticies_back {
-    {{-p, -p, -p}, red},  // 0
-    {{-p, p, -p}, green}, // 1
-    {{p, p, -p}, blue},   // 2
-    {{p, -p, -p}, red},   // 3
-    {{p, -p, p}, green},  // 4
-    {{p, p, p}, blue},    // 5
-    {{-p, p, p}, red},    // 6
-    {{-p, -p, p}, green}, // 7
+constexpr std::array verticies_back {
+    Vertex{{-p, -p, -p}, red, left_lower},  // 0
+    Vertex{{-p, p, -p}, green, left_upper}, // 1
+    Vertex{{p, p, -p}, blue, right_upper},   // 2
+    Vertex{{p, -p, -p}, red, right_lower},   // 3
+    Vertex{{p, -p, p}, green, left_lower},  // 4
+    Vertex{{p, p, p}, blue, left_upper},    // 5
+    Vertex{{-p, p, p}, red, right_lower},    // 6
+    Vertex{{-p, -p, p}, green, right_upper}, // 7
 };
 
 const std::vector<uint16_t> indices{
@@ -517,12 +562,14 @@ Engine::Engine()
         return Queues{graphics_queue, present_queue};
     }()},
     shaders_{device_.logical},
-    descriptor_set_layout_{init::create_descriptor_set_layout(device_.logical)},
+    ubo_layout_{init::create_descriptor_set_layout(device_.logical, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT)},
+    texture_layout_{init::create_descriptor_set_layout(device_.logical, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT)},
+    sampler_{init::create_sampler(device_.logical, VK_FILTER_NEAREST)},
     desc_pool_{init::create_descriptor_pool(device_.logical, FRAME_OVERLAP)},
     render_pass_{init::create_render_pass(device_.logical, swapchain_.color_format, depth_format)},
     pipeline_{[&] {
-        auto const binding_desc = binding_description();
-        auto const attribute_desc = attribute_descritptions();
+        auto const binding_desc = Vertex::binding_description();
+        auto const attribute_desc = Vertex::attribute_descriptions();
         auto const depth = init::depth_stencil_create_info(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
 
         PipelineBuilder builder{};
@@ -533,13 +580,15 @@ Engine::Engine()
             .set_render_pass(render_pass_)
             .set_descriptors(binding_desc, attribute_desc)
             .set_depth_testing(depth)
+            .set_descriptor_sets(ubo_layout_, texture_layout_)
             .build(device_.logical);
     }()},
     frame_buffers_{init::create_frame_buffers(
         device_.logical, swapchain_, extent_, render_pass_, create_depth_image(depth_format).image_view)},
     frame_data_{[&] {
         std::array<FrameData, FRAME_OVERLAP> data;
-        auto const desc_sets = init::allocate_descriptor_sets<FRAME_OVERLAP>(device_.logical, descriptor_set_layout_, desc_pool_);
+        auto const ubos_sets = init::allocate_descriptor_sets<FRAME_OVERLAP>(device_.logical, ubo_layout_, desc_pool_);
+        auto const texture_sets = init::allocate_descriptor_sets<FRAME_OVERLAP>(device_.logical, texture_layout_, desc_pool_);
 
         uint32_t idx{};
         for (auto &frame : frame_data_)
@@ -552,8 +601,11 @@ Engine::Engine()
             frame.frame_ready = init::create_fence(device_.logical, true);
             frame.uniform_buffer = create_uniform_buf();
 
-            frame.descriptor_set = desc_sets.at(idx);
-            init::fill_descriptor_set(device_.logical, frame.descriptor_set, frame.uniform_buffer);
+            frame.ubo_descriptors = ubos_sets.at(idx); 
+            init::fill_ubo_desc_set(device_.logical, frame.ubo_descriptors, frame.uniform_buffer);
+            
+            frame.texture_descriptors = texture_sets.at(idx);
+            // filling the des happens later
             idx++;
         }
 
@@ -731,7 +783,7 @@ Buffer Engine::create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemo
                                     .pNext = nullptr,
                                     .allocationSize = mem_reqs.size,
                                     .memoryTypeIndex =
-                                        find_memory_type_idx(device_.physical, mem_reqs.memoryTypeBits, props)};
+                                    find_memory_type_idx(device_.physical, mem_reqs.memoryTypeBits, props)};
 
     utils::check_vk(vkAllocateMemory(device_.logical, &alloc_info, nullptr, &buffer.memory));
     vkBindBufferMemory(device_.logical, buffer.buffer, buffer.memory, 0);
@@ -798,9 +850,9 @@ void Engine::copy_buffer(Buffer const &source, Buffer &dst) const
     vkFreeCommandBuffers(device_.logical, frame.cmd_pool, 1, &cmd_buffer);
 }
 
-void Engine::record(VkCommandBuffer cmd_buff, size_t count, VkDescriptorSet desc_set) const
+void Engine::record(VkCommandBuffer cmd_buff, size_t count) const
 {
-    auto &frame = current_frame();
+    auto const& frame = current_frame();
 
     VkCommandBufferBeginInfo buffer_begin_info{};
     buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -814,7 +866,10 @@ void Engine::record(VkCommandBuffer cmd_buff, size_t count, VkDescriptorSet desc
     VkDeviceSize offset{0};
     vkCmdBindVertexBuffers(cmd_buff, 0, 1, &vertex_buffer_.buffer, &offset);
     vkCmdBindIndexBuffer(cmd_buff, index_buffer_.buffer, 0, VK_INDEX_TYPE_UINT16);
-    vkCmdBindDescriptorSets(cmd_buff, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.layout, 0, 1, &desc_set, 0, nullptr);
+    
+    vkCmdBindDescriptorSets(cmd_buff, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.layout, 0, 1, &frame.ubo_descriptors, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd_buff, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.layout, 1, 1, &frame.texture_descriptors, 0, nullptr);
+
     vkCmdDrawIndexed(cmd_buff, count, 1, 0, 0, 0);
     vkCmdEndRenderPass(cmd_buff);
     utils::check_vk(vkEndCommandBuffer(cmd_buff));
@@ -830,7 +885,12 @@ void Engine::prepare_framedata(uint32_t framebuffer_idx)
 
 void Engine::run()
 {
-    textures_["dirt"] = load_texture("res/dirt.png");
+    auto& dirt_texture = textures_["dirt"] = load_texture("res/dirt.png");
+    for (auto& frame : frame_data_) 
+    {
+        init::fill_texture_desc_set(device_.logical, frame.texture_descriptors, dirt_texture, sampler_);
+    }
+
     while (not window_.should_close())
     {
         auto const actions = window_.collect_actions();
@@ -880,7 +940,7 @@ void Engine::draw()
     utils::check_vk(acquired_image);
     prepare_framedata(image_index);
     frame.uniform_buffer.copy(UniformBufferObject{glm::mat4(1.f), camera_.view, camera_.projection});
-    record(frame.cmd_buffer, indices.size(), frame.descriptor_set);
+    record(frame.cmd_buffer, indices.size());
     submit(frame.cmd_buffer, image_index);
     ++frame_number_;
 }
