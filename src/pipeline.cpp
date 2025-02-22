@@ -186,9 +186,9 @@ PipelineBuilder& PipelineBuilder::set_fragment(VkShaderModule fragment) {
     return *this;
 }
 
-
 VkPipelineRasterizationStateCreateInfo PipelineBuilder::rasterizer_info() const {
-    VkPipelineRasterizationStateCreateInfo rasterizer_info {
+    VkPipelineRasterizationStateCreateInfo rasterizer_info 
+    {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,

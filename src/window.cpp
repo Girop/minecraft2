@@ -12,7 +12,8 @@ const std::unordered_map<int, Action> mapping {
     {GLFW_KEY_D, Action::Right},
     {GLFW_KEY_LEFT_SHIFT, Action::Down},
     {GLFW_KEY_SPACE, Action::Up},
-    {GLFW_KEY_ESCAPE, Action::Terminate}
+    {GLFW_KEY_ESCAPE, Action::Terminate},
+    {GLFW_KEY_L, Action::Log},
 };
 
 }

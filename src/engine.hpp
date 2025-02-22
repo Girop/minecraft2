@@ -51,6 +51,7 @@ private:
         return frame_data_[frame_number_ % FRAME_OVERLAP];
     }
 
+    void prerun();
     void prepare_framedata(uint32_t frame_index);
     void draw();
 

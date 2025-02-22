@@ -223,7 +223,7 @@ VkRenderPass create_render_pass(VkDevice device, VkFormat color_format, VkFormat
 }
 
 
-constexpr VkClearValue clear_color{{{0.f, 0.f, 0.f, 1.f}}};
+constexpr VkClearValue clear_color{{{0.f, 157.f / 256.f, 196.f / 256.f, 1.f}}};
 constexpr VkClearValue clear_depth {.depthStencil = {.depth = 1.f, .stencil = 0}};
 constexpr std::array clear_clrs {clear_color, clear_depth};
 
@@ -509,6 +509,7 @@ uint32_t find_memory_type_idx(VkPhysicalDevice device, uint32_t type_filter, VkM
 bool requested_end(std::span<Action const> actions) {
     auto const terminate_it = std::find(actions.begin(), actions.end(), Action::Terminate);
     return terminate_it != actions.end();
+    
 }
 
 constexpr VkFormat depth_format {VK_FORMAT_D32_SFLOAT};
@@ -883,18 +884,29 @@ void Engine::prepare_framedata(uint32_t framebuffer_idx)
     vkResetCommandBuffer(frame.cmd_buffer, 0);
 }
 
-void Engine::run()
+void Engine::prerun() 
 {
     auto& dirt_texture = textures_["dirt"] = load_texture("res/dirt.png");
     for (auto& frame : frame_data_) 
     {
         init::fill_texture_desc_set(device_.logical, frame.texture_descriptors, dirt_texture, sampler_);
     }
+}
 
+void Engine::run()
+{
+    prerun();
     while (not window_.should_close())
     {
         auto const actions = window_.collect_actions();
         if (requested_end(actions)) break;
+        if (std::find(actions.begin(), actions.end(), Action::Log) != actions.end()) 
+        {
+            fmt::println(
+            "Current position: x: {}, y: {}, z: {}",
+            player_position_.x, player_position_.y, player_position_.z);
+        }
+
         update(actions);
         draw();
     }

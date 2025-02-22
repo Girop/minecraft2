@@ -14,6 +14,7 @@ enum class Action {
     Up,
     Down,
     Terminate,
+    Log,
     MAX_COUNT
 };
 

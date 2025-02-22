@@ -11,10 +11,7 @@ std::unordered_map<ShaderType, std::filesystem::path> const mapping {
 Shader ShaderManager::create_shader(ShaderType type) const {
     auto const shader_bytes = load(mapping.at(type));
     auto const module = compile(shader_bytes);
-    return {
-        type, 
-        module
-    };
+    return { type, module };
 }
 
 std::vector<std::byte> ShaderManager::load(std::filesystem::path const& path) const {
