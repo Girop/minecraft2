@@ -47,9 +47,12 @@ sources = files(
   'src/vertex.cpp'
 )
 
+inc_dir = include_directories('src')
+
 executable(
   'renderer',
   sources,
   cpp_args: cpp_args,
   dependencies: deps,
+  include_directories : inc_dir
 )

@@ -27,25 +27,14 @@ void verify_validation_layers()
     std::vector<VkLayerProperties> available_layers;
     available_layers.resize(layerCount);
     vkEnumerateInstanceLayerProperties(&layerCount, available_layers.data());
-    
-    bool all_found {true};
-
     for (auto& layer: activated_validation_layers) {
         auto found_it = std::ranges::find_if(available_layers, [&layer](auto& elem) {
             return std::strcmp(elem.layerName, layer) == 0;
         });
-        
- //       fmt::print("Validation layer {}: ", layer);
-        if (found_it != available_layers.end()) {
- //           fmt::println("FOUND");
-        } else {
-//            fmt::println("MISSING");
-            all_found = false;
+        if (found_it == available_layers.end()) 
+        {
+            fail("Missing validation layers");
         }
-    }
-
-    if (not all_found) {
-        fail("Missing validation layers");
     }
 }
 
@@ -437,21 +426,6 @@ std::vector<VkFramebuffer> create_frame_buffers(
     return frame_buffers;
 }
 
-VkExtent2D create_extent(VkSurfaceCapabilitiesKHR const& capabilities, glm::uvec2 const& winsize)
-{
-    if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
-    {
-        return capabilities.currentExtent;
-    }
-
-    auto const &min_extent = capabilities.minImageExtent;
-    auto const &max_extent = capabilities.maxImageExtent;
-    return {
-        .width = std::clamp(winsize.x, min_extent.width, max_extent.width),
-        .height = std::clamp(winsize.y, min_extent.width, max_extent.width),
-    };
-}
-
 } // namespace init
 
 namespace {
@@ -468,8 +442,8 @@ constexpr glm::vec2 right_upper {1.f, 1.f};
 constexpr float p {0.5f};
 constexpr std::array verticies_back {
     Vertex{{-p, -p, -p}, red, left_lower},  // 0
-    Vertex{{-p, p, -p}, green, left_upper}, // 1
-    Vertex{{p, p, -p}, blue, right_upper},   // 2
+    Vertex{{-p, p, -p}, green, right_upper}, // 1
+    Vertex{{p, p, -p}, blue, left_upper},   // 2
     Vertex{{p, -p, -p}, red, right_lower},   // 3
     Vertex{{p, -p, p}, green, left_lower},  // 4
     Vertex{{p, p, p}, blue, left_upper},    // 5
@@ -553,7 +527,7 @@ Engine::Engine()
     surface_{init::create_surface(instance_, window_.handle())},
     device_{Device::create(instance_, surface_)},
     swapchain_{Swapchain::create(device_, surface_, window_)},
-    extent_{init::create_extent(swapchain_.details.capabilities, window_.size())},
+    extent_{swapchain_.details.capabilities.currentExtent},
     camera_{extent_},
     viewport_{extent_},
     queues_{[&] {
@@ -652,11 +626,8 @@ Texture Engine::load_texture(std::filesystem::path const& path)
     alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
     alloc_info.allocationSize = mem_reqs.size;
     alloc_info.memoryTypeIndex = find_memory_type_idx(device_.physical, mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    // fmt::println("Mem req: {}, Size: {}", mem_reqs.size, size);
-
     utils::check_vk(vkAllocateMemory(device_.logical, &alloc_info, nullptr, &tex.memory));
     utils::check_vk(vkBindImageMemory(device_.logical, tex.image, tex.memory, 0));
-
     
     immediate_submit([&] (VkCommandBuffer cmd) {
         VkImageSubresourceRange subresources_range {
@@ -688,7 +659,6 @@ Texture Engine::load_texture(std::filesystem::path const& path)
             1,
             &imageBarrier_toTransfer
         );
-
 
         VkBufferImageCopy copyRegion {};
         copyRegion.bufferOffset = 0;
