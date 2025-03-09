@@ -1,11 +1,17 @@
-#include "engine.hpp"
+#include "log.hpp"
+#include "app.hpp"
+#include "utils.hpp"
 
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) 
 {
-    Engine engine {}; 
-    engine.run();
-    engine.shutdown();
+    debug("Starting the app");
+    try {
+        App app {"Minecraft2"};
+        app.run();
+    } catch (utils::FatalError const& except) {
+        error("Fatal error occured at {}", except.where());
+    }
     return 0;
 } 
 

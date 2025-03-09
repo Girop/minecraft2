@@ -3,12 +3,12 @@
 #include <math.h>
 #include "camera.hpp"
 
-PerspectiveCamera::PerspectiveCamera(VkExtent2D const& extent):
+PerspectiveCamera::PerspectiveCamera(glm::uvec2 const& extent):
     pitch{0.0f},
     yaw{0.0f},
     znear{0.001f},
     zfar{1000.f},
-    aspect_rato{static_cast<float>(extent.width) / static_cast<float>(extent.height)},
+    aspect_rato{static_cast<float>(extent.x) / static_cast<float>(extent.y)},
     fov{glm::pi<float>() / 2.f},
     up_dir{0.f, 1.f, 0.f},
     position{0.f},

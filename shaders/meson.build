@@ -2,7 +2,7 @@ fs = import('fs')
 
 shader_targets = []
 shader_compiler = find_program('glslc')
-shader_files = files('textured_cube.frag', 'textured_cube.vert')
+shader_files = files('cube.frag', 'cube.vert')
 
 foreach shader : shader_files
   shader_targets += custom_target(

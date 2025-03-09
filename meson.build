@@ -35,17 +35,30 @@ deps = [
 ]
 
 sources = files(
-  'src/main.cpp',
-  'src/engine.cpp',
-  'src/swapchain.cpp',
-  'src/shader.cpp',
-  'src/pipeline.cpp',
-  'src/window.cpp',
-  'src/uniforms.cpp',
-  'src/device.cpp',
+  'src/ext/stbi.cpp',
+  'src/gfx/buffer.cpp',
+  'src/gfx/commands.cpp',
+  'src/gfx/descriptors.cpp',
+  'src/gfx/device.cpp',
+  'src/gfx/framedata.cpp',
+  'src/gfx/image.cpp',
+  'src/gfx/pipeline.cpp',
+  'src/gfx/queues.cpp',
+  'src/gfx/renderer.cpp',
+  'src/gfx/shader.cpp',
+  'src/gfx/swapchain.cpp',
+  'src/gfx/sync.cpp',
+  'src/gfx/uniforms.cpp',
+  'src/gfx/vertex.cpp',
+  'src/app.cpp',
   'src/camera.cpp',
-  'src/vertex.cpp'
+  'src/input.cpp',
+  'src/main.cpp',
+  'src/texture.cpp',
+  'src/window.cpp',
+  'src/world.cpp'
 )
+
 
 inc_dir = include_directories('src')
 

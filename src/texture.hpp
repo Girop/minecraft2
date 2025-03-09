@@ -1,6 +1,17 @@
 #pragma once
-#include "image.hpp"
+#include <string>
+#include "gfx/image.hpp"
+#include "utils.hpp"
 
 
-struct Texture: Image { };
+class Texture {
+public:
+    Texture(Device& device, std::string const& name);
 
+    ~Texture();
+
+    CONST_GETTER(image);
+private:
+    std::string name_;
+    Image image_;
+};
