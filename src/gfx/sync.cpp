@@ -1,4 +1,5 @@
-#include "sync.hpp"
+#include "fence.hpp"
+#include "semaphore.hpp"
 #include "device.hpp"
 
 Fence::Fence(Device const& device, bool const signaled) :
@@ -17,8 +18,14 @@ Fence::Fence(Device const& device, bool const signaled) :
         .flags = flags
     };
     utils::check_vk(vkCreateFence(device.logical(), &info, nullptr, &handle_));
-
 }
+
+
+bool Fence::is_signaled() const 
+{
+    return vkGetFenceStatus(device_.logical(), handle_) == VK_SUCCESS;
+}
+
 
 void Fence::wait_and_reset() 
 {
@@ -36,3 +43,5 @@ Semaphore::Semaphore(Device const& device)
     };
     utils::check_vk(vkCreateSemaphore(device.logical(), &info, nullptr, &handle_));
 }
+
+

@@ -107,7 +107,7 @@ Device::Device(VkInstance const instance, VkSurfaceKHR const surface) :
     physical_{best_physical_device(instance, surface)},
     logical_{best_logical_device(physical_, surface)},
     queue_{QueueFamily {physical_, surface}.get_queue(logical_)},
-    cmd_{*this, surface, queue_} // questionable, but correct
+    cmd_{*this, surface, queue_, false} // questionable, but correct
 {}
 
 uint32_t Device::find_memory_type_index(

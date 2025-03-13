@@ -7,7 +7,7 @@ namespace
 
 glm::vec3 calculate_movement(Action const action, float const speed, float const yaw)
 {
-    float delta {speed};
+    float delta {speed * 0.003f};
     glm::vec3 mov(0.0f);
     switch (action) {
         case Action::Backward:

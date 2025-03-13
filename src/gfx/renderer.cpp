@@ -368,12 +368,12 @@ Renderer::Renderer(Window& window) :
         sampler_
     }
 {
-    debug("Renderer intialized");
+    info("Renderer intialized");
 }
 
 Renderer::~Renderer() 
 {
-    
+    device_.wait();
 }
 
 void Renderer::handle_world_data(RenderData const& data) 
@@ -428,7 +428,6 @@ void Renderer::draw(RenderData const& render_data)
     record(*swapchain_index, count, index, vertex);
     submit();
     present(*swapchain_index);
-
     ++frame_number_;
 }
 
@@ -449,6 +448,7 @@ void Renderer::record(uint32_t const swapchain_index, uint32_t const index_count
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, main_pipeline_.layout, 1, 1, &frame.texture_descriptor, 0, nullptr);
 
         vkCmdDrawIndexed(cmd, index_count, 1, 0, 0, 0);
+        vkCmdEndRenderPass(cmd);
     });
 }
 
@@ -468,6 +468,7 @@ void Renderer::submit()
         .signalSemaphoreCount = 1,
         .pSignalSemaphores = &frame.image_rendered.handle()
     };
+    assert(!frame.cmd.execution_fence().is_signaled());
     frame.cmd.submit(submit_info);
 }
 

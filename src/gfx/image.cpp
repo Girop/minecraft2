@@ -1,3 +1,4 @@
+#include <assert.h>
 #include "image.hpp"
 #include "utils.hpp"
 #include "device.hpp"
@@ -94,10 +95,11 @@ VkDeviceMemory Image::allocate_memory() const
 Image::~Image() = default;
 
 
-void Image::fill(GpuBuffer const& buffer)
+void Image::fill(void const* src, size_t const size)
 {
     VkMemoryRequirements mem_reqs;
     vkGetImageMemoryRequirements(device_.logical(), image_, &mem_reqs);
+    assert(size <= mem_reqs.size);
 
     GpuBuffer staging_buffer 
     {
@@ -107,7 +109,7 @@ void Image::fill(GpuBuffer const& buffer)
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     };
     
-    staging_buffer.copy_from(buffer);
+    staging_buffer.fill(src);
     device_.immediate_submit([&](VkCommandBuffer cmd) {
         VkImageSubresourceRange subresources_range 
         {

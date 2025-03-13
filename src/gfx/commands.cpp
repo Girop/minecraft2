@@ -46,17 +46,16 @@ VkSubmitInfo submit_info(VkCommandBuffer const& buffer)
 
 }
 
-CommandBuffer::CommandBuffer(Device const& device, VkSurfaceKHR const surface, VkQueue const queue):
+CommandBuffer::CommandBuffer(Device const& device, VkSurfaceKHR const surface, VkQueue const queue, bool signaled):
     pool_{allocate_command_pool(device, surface)},
     buffer_{allocate_command_buffer(device, pool_)},
     queue_{queue},
-    execution_fence_{device, true}
+    execution_fence_{device, signaled}
 {}
 
 
 void CommandBuffer::record(std::function<void(VkCommandBuffer)> const& context, bool const single_use) 
 {
-
     VkCommandBufferBeginInfo buffer_begin_info{};
     buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     if (single_use) 

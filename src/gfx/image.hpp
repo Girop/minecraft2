@@ -16,7 +16,7 @@ public:
         VkImageAspectFlags const aspect
     );
 
-    void fill(GpuBuffer const& buffer);
+    void fill(void const* src, size_t const size);
 
     ~Image();
 

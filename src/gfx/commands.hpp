@@ -1,13 +1,13 @@
 #pragma once
 #include <vulkan/vulkan.h>
 #include <functional>
-#include "sync.hpp"
+#include "fence.hpp"
 
 class Device;
 
 class CommandBuffer {
 public:
-    CommandBuffer(Device const& device, VkSurfaceKHR const surface, VkQueue const queue);
+    CommandBuffer(Device const& device, VkSurfaceKHR const surface, VkQueue const queue, bool signaled = true);
 
     CommandBuffer(CommandBuffer const&) = delete;
     CommandBuffer operator=(CommandBuffer const&) = delete;
@@ -18,6 +18,7 @@ public:
     void wait();
     void reset();
 
+    GETTER(execution_fence);
     GETTER(buffer);
 private:
     VkCommandPool pool_;

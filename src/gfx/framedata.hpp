@@ -2,6 +2,7 @@
 #include "buffer.hpp"
 #include "commands.hpp"
 #include "descriptors.hpp"
+#include "semaphore.hpp"
 
 constexpr uint8_t FRAME_OVERLAP {2u};
 
@@ -18,7 +19,7 @@ struct Framedata
     VkDescriptorSet unfirom_descriptor;
 };
 
-// TODO move descriptor logic setup in some other place
+// TODO move descriptor logic setup to some other place
 struct Frames
 {
     Frames(
